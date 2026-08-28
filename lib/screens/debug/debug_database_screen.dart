@@ -251,15 +251,23 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen> {
                         final id = await _db.insertContact(testContact);
                         if (mounted) {
                           await _loadData();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Contact test créé avec ID: $id')),
-                          );
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Contact test créé avec ID: $id')),
+                              );
+                            }
+                          });
                         }
                       } catch (e) {
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Erreur: $e')),
-                          );
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Erreur: $e')),
+                              );
+                            }
+                          });
                         }
                       }
                     },
