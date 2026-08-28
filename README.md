@@ -1,6 +1,6 @@
 # WU_ECT - Comparatifs Énergétiques de Systèmes de Pompage
 
-**Version:** 0.0.002  
+**Version:** 0.0.003  
 **Technologie:** Flutter  
 **Plateformes cibles:** Windows (prioritaire), Android (prioritaire), iOS (secondaire)  
 **Base de données:** SQLite (via sqflite)  
@@ -34,7 +34,7 @@ L'application calcule automatiquement :
 - La consommation annuelle en kWh de chaque système
 - Le coût énergétique annuel en €
 - Le ROI (Retour sur Investissement)
-- Des graphiques comparatifs sur 10 ans
+- Des graphiques comparatifs sur 10 ans (consommation, coût, volume vs énergie)
 
 ---
 
@@ -58,6 +58,7 @@ L'application calcule automatiquement :
 ### Visualisation
 - ✅ Graphique **"Consommation Énergétique (kWh) sur 10 ans"**
 - ✅ Graphique **"Coût Énergétique (€) sur 10 ans"**
+- ✅ Graphique **"Volume vs Énergie Consommée (sur 10 ans)"** - Scatter plot comparant les systèmes sur l'énergie spécifique
 - ✅ Affichage des données de comparatif (économies, ROI, etc.)
 
 ---
@@ -230,6 +231,25 @@ coutEnergie_Année_N = coutEnergie_Année_N-1 × (1 + pourcentageAugmentationEne
 DeltaInvestissement = coutInvestissementNouveau - coutInvestissementAncien
 ROI (années) = DeltaInvestissement / (ÉconomieTotale / 10)
 ```
+
+### 9. Graphique Volume vs Énergie (Comparatif)
+Pour le graphique scatter plot comparant les systèmes :
+
+**Volume total pompé sur 10 ans par système (abscisse x) :**
+```
+Vol_système = Σ(Débit_i × heuresFonctionnement_i × 10) pour chaque pompe i du système
+```
+
+**Énergie totale consommée par système (ordonnée y) :**
+```
+Énergie_système = Σ(ÉnergieSpécifique_i × Débit_i × heuresFonctionnement_i × 10) pour chaque pompe i
+```
+
+Où :
+- **Débit_i** = débit de la pompe i (m³/h)
+- **heuresFonctionnement_i** = heures de fonctionnement annuelles de la pompe i
+- **ÉnergieSpécifique_i** = énergie spécifique de la pompe i (kW/m³/h)
+- Le facteur **10** représente la projection sur 10 ans
 
 ---
 
@@ -439,6 +459,7 @@ Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :
 
 | Version | Date | Modifications |
 |---------|------|----------------|
+| **0.0.003** | 28/08/2026 | Ajout graphique Volume vs Énergie dans comparatif. Correction flux page Système (bouton Valider & Quitter). |
 | **0.0.002** | 27/08/2026 | Mise à jour du README.md - Documentation complète du projet |
 | **0.0.001** | 27/08/2026 | Version initiale - Structure de base, modèles, services, écrans |
 
@@ -497,5 +518,5 @@ Pour toute question ou problème, contactez :
 
 ---
 
-*Documentation générée pour la version 0.0.002 - 27/08/2026*
+*Documentation générée pour la version 0.0.003 - 28/08/2026*
 
