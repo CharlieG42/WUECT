@@ -1,0 +1,399 @@
+import 'package:flutter/material.dart';
+import '../../models/projet.dart';
+import '../../models/contact.dart';
+import '../../models/systeme.dart';
+import '../../services/database_service.dart';
+import '../contact/contact_form_screen.dart';
+import '../systeme/systeme_form_screen.dart';
+import '../resultat/resultat_screen.dart';
+
+class ProjetDetailScreen extends StatefulWidget {
+  final int projetId;
+
+  const ProjetDetailScreen({super.key, required this.projetId});
+
+  @override
+  State<ProjetDetailScreen> createState() => _ProjetDetailScreenState();
+}
+
+class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
+  final DatabaseService _db = DatabaseService.instance;
+  
+  Projet? _projet;
+  Contact? _contact;
+  List<Systeme> _systemes = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final projet = await _db.getProjetById(widget.projetId);
+      if (projet != null) {
+        final contact = await _db.getContactById(projet.contactId);
+        final systemes = await _db.getSystemesByProjetId(widget.projetId);
+        setState(() {
+          _projet = projet;
+          _contact = contact;
+          _systemes = systemes;
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Projet non trouvé')),
+          );
+          Navigator.pop(context);
+        }
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de chargement: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteSysteme(int systemeId) async {
+    try {
+      await _db.deletePompeBySystemeId(systemeId);
+      await _db.deleteSysteme(systemeId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Système supprimé avec succès')),
+        );
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de suppression: $e')),
+        );
+      }
+    }
+  }
+
+  bool _hasAncienSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
+  bool _hasNouveauSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_projet?.nomSite ?? 'Détails du Projet'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _projet == null
+              ? const Center(child: Text('Projet non trouvé'))
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Informations du projet
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Informations du Projet',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              const Divider(height: 16),
+                              Text('Nom du site: ${_projet!.nomSite}'),
+                              if (_contact != null) ...[
+                                const SizedBox(height: 8),
+                                Text('Client: ${_contact!.client}'),
+                                Text('Contact: ${_contact!.nom}'),
+                                Text('Email: ${_contact!.email}'),
+                                Text('Mobile: ${_contact!.mobile}'),
+                              ],
+                              const SizedBox(height: 8),
+                              Text('Coût énergie: ${_projet!.coutEnergie} €/kWh'),
+                              Text('Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
+                              Text('Perte rendement/an: ${_projet!.percentagePerteRendement}%'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // Boutons pour modifier le projet ou le contact
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.edit),
+                              label: const Text('Modifier Projet'),
+                              onPressed: () => _showEditProjetDialog(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.edit),
+                              label: const Text('Modifier Contact'),
+                              onPressed: () => _navigateToContactForm(_contact?.id),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // Systèmes
+                      const Text(
+                        'Systèmes',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      if (_systemes.isEmpty)
+                        const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text(
+                              'Aucun système ajouté. Ajoutez l\'Ancien Système et le Nouveau Système pour continuer.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        )
+                      else
+                        ..._systemes.map((systeme) => Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              child: ListTile(
+                                title: Text(systeme.nom),
+                                subtitle: Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.blue),
+                                      onPressed: () => _navigateToSystemeForm(systeme.id),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () => _showDeleteSystemeConfirmation(systeme.id!),
+                                    ),
+                                  ],
+                                ),
+                                onTap: () => _navigateToSystemeForm(systeme.id),
+                              ),
+                            )),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Boutons pour ajouter des systèmes
+                      Row(
+                        children: [
+                          if (!_hasAncienSysteme())
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.add),
+                                label: const Text('Ancien Système'),
+                                onPressed: () => _navigateToSystemeForm(null, 'Ancien Système'),
+                              ),
+                            )
+                          else
+                            const Expanded(child: SizedBox()),
+                          const SizedBox(width: 8),
+                          if (!_hasNouveauSysteme())
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.add),
+                                label: const Text('Nouveau Système'),
+                                onPressed: () => _navigateToSystemeForm(null, 'Nouveau Système'),
+                              ),
+                            )
+                          else
+                            const Expanded(child: SizedBox()),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Bouton pour voir les résultats (uniquement si les 2 systèmes existent)
+                      if (_hasAncienSysteme() && _hasNouveauSysteme())
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.analytics),
+                          label: const Text('Voir le Comparatif'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ResultatScreen(projetId: widget.projetId),
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: Colors.green,
+                          ),
+                        )
+                      else
+                        Opacity(
+                          opacity: 0.5,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.analytics),
+                            label: const Text('Voir le Comparatif (2 systèmes requis)'),
+                            onPressed: null,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  Future<void> _showEditProjetDialog() async {
+    if (_projet == null) return;
+    
+    final nomSiteController = TextEditingController(text: _projet!.nomSite);
+    final coutEnergieController = TextEditingController(text: _projet!.coutEnergie.toString());
+    final pourcentageAugController = TextEditingController(text: _projet!.pourcentageAugmentationEnergie.toString());
+    final percentagePerteController = TextEditingController(text: _projet!.percentagePerteRendement.toString());
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Modifier le Projet'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nomSiteController,
+                decoration: const InputDecoration(labelText: 'Nom du Site'),
+              ),
+              TextFormField(
+                controller: coutEnergieController,
+                decoration: const InputDecoration(labelText: 'Coût énergie (€/kWh)'),
+                keyboardType: TextInputType.number,
+              ),
+              TextFormField(
+                controller: pourcentageAugController,
+                decoration: const InputDecoration(labelText: 'Augmentation énergie/an (%)'),
+                keyboardType: TextInputType.number,
+              ),
+              TextFormField(
+                controller: percentagePerteController,
+                decoration: const InputDecoration(labelText: 'Perte rendement/an (µCoef %)'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                final projet = _projet!.copyWith(
+                  nomSite: nomSiteController.text,
+                  coutEnergie: double.parse(coutEnergieController.text),
+                  pourcentageAugmentationEnergie: double.parse(pourcentageAugController.text),
+                  percentagePerteRendement: double.parse(percentagePerteController.text),
+                );
+                await _db.updateProjet(projet);
+                if (mounted) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      Navigator.pop(dialogContext);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Projet mis à jour')),
+                      );
+                      _loadData();
+                    }
+                  });
+                }
+              } catch (e) {
+                if (mounted) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      Navigator.pop(dialogContext);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Erreur: $e')),
+                      );
+                    }
+                  });
+                }
+              }
+            },
+            child: const Text('Sauvegarder'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _navigateToContactForm(int? contactId) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ContactFormScreen(contactId: contactId),
+      ),
+    );
+    
+    if (result == true && mounted) {
+      _loadData();
+    }
+  }
+
+  Future<void> _navigateToSystemeForm(int? systemeId, [String? nomSysteme]) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SystemeFormScreen(
+          projetId: widget.projetId,
+          systemeId: systemeId,
+          nomSysteme: nomSysteme,
+        ),
+      ),
+    );
+    
+    if (result == true && mounted) {
+      _loadData();
+    }
+  }
+
+  void _showDeleteSystemeConfirmation(int systemeId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer le Système'),
+        content: const Text('Êtes-vous sûr de vouloir supprimer ce système ? Toutes les pompes associées seront également supprimées.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteSysteme(systemeId);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+}
