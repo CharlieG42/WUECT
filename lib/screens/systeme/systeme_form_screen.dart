@@ -253,6 +253,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
   @override
   Widget build(BuildContext context) {
     final esTotal = _calculerEsTotal();
+    final showValidateAndQuit = _systemeSaved;
 
     return Scaffold(
       appBar: AppBar(
@@ -320,32 +321,19 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Bouton Créer/Mettre à jour
+                    // Bouton principal : Créer/Mettre à jour OU Valider & Quitter
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.save),
-                      label: Text(_isNew ? 'Créer le Système' : 'Mettre à jour'),
-                      onPressed: _isLoading ? null : _saveSysteme,
+                      icon: showValidateAndQuit ? const Icon(Icons.check) : const Icon(Icons.save),
+                      label: Text(showValidateAndQuit ? 'Valider & Quitter' : (_isNew ? 'Créer le Système' : 'Mettre à jour')),
+                      onPressed: _isLoading ? null : (showValidateAndQuit ? _validateAndExit : _saveSysteme),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: showValidateAndQuit ? Colors.green : null,
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Bouton Valider & Quitter (uniquement si système sauvegardé)
-                    if (_systemeSaved)
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.check),
-                        label: const Text('Valider & Quitter'),
-                        onPressed: _isLoading ? null : _validateAndExit,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: Colors.green,
-                        ),
-                      ),
-                    const SizedBox(height: 16),
-
-                    if (_systemeSaved)
-                      const Divider(height: 24),
+                    const Divider(height: 24),
                     const SizedBox(height: 8),
 
                     // Liste des pompes
@@ -418,13 +406,11 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
                     const SizedBox(height: 16),
 
                     // Bouton pour ajouter une pompe (uniquement si système sauvegardé)
-                    if (_systemeId != null || _systemeSaved)
+                    if (_systemeSaved)
                       ElevatedButton.icon(
                         icon: const Icon(Icons.add),
                         label: const Text('Ajouter une Pompe'),
-                        onPressed: _systemeId == null && !_systemeSaved 
-                            ? null 
-                            : () => _navigateToPompeForm(null),
+                        onPressed: () => _navigateToPompeForm(null),
                       ),
                   ],
                 ),
