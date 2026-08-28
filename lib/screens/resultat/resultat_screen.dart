@@ -74,8 +74,25 @@ class _ResultatScreenState extends State<ResultatScreen> {
       }
 
       _projet = projet;
-      _systemeAncien = systemes.firstWhere((s) => s.nom.toLowerCase().contains('ancien'));
-      _systemeNouveau = systemes.firstWhere((s) => s.nom.toLowerCase().contains('nouveau'));
+      
+      // Trouver les systèmes ancien et nouveau (avec gestion d'erreur si noms non conformes)
+      final ancienSystems = systemes.where((s) => s.nom.toLowerCase().contains('ancien')).toList();
+      final nouveauSystems = systemes.where((s) => s.nom.toLowerCase().contains('nouveau')).toList();
+      
+      _systemeAncien = ancienSystems.isNotEmpty ? ancienSystems.first : null;
+      _systemeNouveau = nouveauSystems.isNotEmpty ? nouveauSystems.first : null;
+      
+      // Vérifier qu'on a bien trouvé les deux systèmes
+      if (_systemeAncien == null || _systemeNouveau == null) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Les systèmes doivent contenir "Ancien" et "Nouveau" dans leur nom')),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
 
       // Charger les pompes pour chaque système
       _pompesAncien = await _db.getPompesBySystemeId(_systemeAncien!.id!);

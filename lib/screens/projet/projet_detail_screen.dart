@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
+import '../../models/pompe.dart';
 import '../../services/database_service.dart';
 import '../contact/contact_form_screen.dart';
 import '../systeme/systeme_form_screen.dart';
+import '../systeme/pompe_form_screen.dart';
 import '../resultat/resultat_screen.dart';
 
 class ProjetDetailScreen extends StatefulWidget {
@@ -22,6 +24,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   Projet? _projet;
   Contact? _contact;
   List<Systeme> _systemes = [];
+  Map<int, List<Pompe>> _pompesBySysteme = {}; // systemeId -> List<Pompe>
   bool _isLoading = true;
 
   @override
@@ -37,10 +40,20 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       if (projet != null) {
         final contact = await _db.getContactById(projet.contactId);
         final systemes = await _db.getSystemesByProjetId(widget.projetId);
+        
+        // Charger les pompes pour chaque système
+        final pompesBySysteme = <int, List<Pompe>>{};
+        for (final systeme in systemes) {
+          if (systeme.id != null) {
+            pompesBySysteme[systeme.id!] = await _db.getPompesBySystemeId(systeme.id!);
+          }
+        }
+        
         setState(() {
           _projet = projet;
           _contact = contact;
           _systemes = systemes;
+          _pompesBySysteme = pompesBySysteme;
           _isLoading = false;
         });
       } else {
@@ -175,27 +188,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                           ),
                         )
                       else
-                        ..._systemes.map((systeme) => Card(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              child: ListTile(
-                                title: Text(systeme.nom),
-                                subtitle: Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit, color: Colors.blue),
-                                      onPressed: () => _navigateToSystemeForm(systeme.id),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red),
-                                      onPressed: () => _showDeleteSystemeConfirmation(systeme.id!),
-                                    ),
-                                  ],
-                                ),
-                                onTap: () => _navigateToSystemeForm(systeme.id),
-                              ),
-                            )),
+                        ..._systemes.map((systeme) => _buildSystemeCardWithPompes(systeme)),
                       
                       const SizedBox(height: 16),
                       
@@ -395,5 +388,163 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         ],
       ),
     );
+  }
+
+  /// Construit une carte pour un système avec la liste de ses pompes
+  Widget _buildSystemeCardWithPompes(Systeme systeme) {
+    final pompes = _pompesBySysteme[systeme.id] ?? [];
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // En-tête du système avec boutons
+          ListTile(
+            title: Text(
+              systeme.nom,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  onPressed: () => _navigateToSystemeForm(systeme.id),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _showDeleteSystemeConfirmation(systeme.id!),
+                ),
+              ],
+            ),
+            onTap: () => _navigateToSystemeForm(systeme.id),
+          ),
+          
+          // Section des pompes
+          if (pompes.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                'Pompes:',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700]),
+              ),
+            ),
+            ...pompes.map((pompe) => _buildPompeListItem(pompe, systeme.id!)),
+          ] else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Aucune pompe. Ajoutez-en une via le bouton Modifier.',
+                style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Construit un item de liste pour une pompe (similaire à systeme_form_screen.dart)
+  Widget _buildPompeListItem(Pompe pompe, int systemeId) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Card(
+        margin: const EdgeInsets.all(0),
+        child: ListTile(
+          title: Text('${pompe.marque} ${pompe.modele}'),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Puissance: ${pompe.puissanceNominale} kW'),
+              Text('Débit: ${pompe.debit} m³/h'),
+              Text('HMT: ${pompe.hmt} mce'),
+              Text('P1 Calculée: ${pompe.p1Calculee.toStringAsFixed(2)} kW'),
+              if (pompe.p1Estimee > 0 && pompe.p1Estimee != pompe.p1Calculee)
+                Text('P1 Estimée: ${pompe.p1Estimee.toStringAsFixed(2)} kW'),
+              Text('Es: ${pompe.energieSpecifique.toStringAsFixed(4)} kW/m³/h'),
+              Text('Heures: ${pompe.heuresFonctionnement} h/an'),
+              Text('Coût: ${pompe.coutInvestissement} €'),
+            ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                onPressed: () => _navigateToPompeForm(systemeId, pompe.id),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                onPressed: () => _showDeletePompeConfirmation(pompe.id!, systemeId),
+              ),
+            ],
+          ),
+          onTap: () => _navigateToPompeForm(systemeId, pompe.id),
+        ),
+      ),
+    );
+  }
+
+  /// Navigation vers le formulaire de pompe
+  Future<void> _navigateToPompeForm(int systemeId, int? pompeId) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PompeFormScreen(
+          systemeId: systemeId,
+          pompeId: pompeId,
+        ),
+      ),
+    );
+    
+    if (result == true && mounted) {
+      _loadData();
+    }
+  }
+
+  /// Affichage de la confirmation de suppression d'une pompe
+  void _showDeletePompeConfirmation(int pompeId, int systemeId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la Pompe'),
+        content: const Text('Êtes-vous sûr de vouloir supprimer cette pompe ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deletePompe(pompeId, systemeId);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Suppression d'une pompe
+  Future<void> _deletePompe(int pompeId, int systemeId) async {
+    try {
+      await _db.deletePompe(pompeId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pompe supprimée avec succès')),
+        );
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de suppression: $e')),
+        );
+      }
+    }
   }
 }
