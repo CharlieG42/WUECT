@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../models/projet.dart';
 import '../../models/systeme.dart';
+import '../../models/pompe.dart';
 import '../../services/calcul_service.dart';
 import '../../services/database_service.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +29,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
   List<double> _coutsNouveau = [];
   List<int> _annees = [];
   Map<String, dynamic>? _roiData;
+  
+  // Données pour le graphique énergie spécifique
+  List<Pompe> _pompesAncien = [];
+  List<Pompe> _pompesNouveau = [];
+  double _volumeAncien = 0;
+  double _volumeNouveau = 0;
+  double _energieAncien = 0;
+  double _energieNouveau = 0;
   
   bool _isLoading = true;
 
@@ -67,6 +76,16 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _projet = projet;
       _systemeAncien = systemes.firstWhere((s) => s.nom.toLowerCase().contains('ancien'));
       _systemeNouveau = systemes.firstWhere((s) => s.nom.toLowerCase().contains('nouveau'));
+
+      // Charger les pompes pour chaque système
+      _pompesAncien = await _db.getPompesBySystemeId(_systemeAncien!.id!);
+      _pompesNouveau = await _db.getPompesBySystemeId(_systemeNouveau!.id!);
+      
+      // Calculer volume et énergie pour chaque système
+      _volumeAncien = _calculerVolumeTotal(_pompesAncien);
+      _volumeNouveau = _calculerVolumeTotal(_pompesNouveau);
+      _energieAncien = _calculerEnergieTotale(_pompesAncien);
+      _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
 
       // Calcul des données sur 10 ans
       final donneesAncien = await _calculService.calculerDonnees10Ans(
@@ -115,6 +134,18 @@ class _ResultatScreenState extends State<ResultatScreen> {
       locale: 'fr_FR',
     );
     return format.format(value);
+  }
+
+  /// Calcule le volume total pompé sur 10 ans pour un système
+  /// Vol = SOMME des (Débit * heures * 10) pour chaque pompe
+  double _calculerVolumeTotal(List<Pompe> pompes) {
+    return pompes.fold(0.0, (sum, pompe) => sum + pompe.debit * pompe.heuresFonctionnement * 10);
+  }
+
+  /// Calcule l'énergie totale consommée pour un système
+  /// Energie = SOMME des (Energie Spécifique * Débit * heures * 10) pour chaque pompe
+  double _calculerEnergieTotale(List<Pompe> pompes) {
+    return pompes.fold(0.0, (sum, pompe) => sum + pompe.energieSpecifique * pompe.debit * pompe.heuresFonctionnement * 10);
   }
 
   @override
@@ -177,6 +208,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 24),
+
+                      // Graphique Énergie Spécifique - Comparaison Volume vs Énergie
+                      _buildGraphiqueEnergieSpecifique(),
                       const SizedBox(height: 24),
 
                       // Graphique Consommation Energétique
@@ -562,6 +597,141 @@ class _ResultatScreenState extends State<ResultatScreen> {
         const SizedBox(width: 8),
         Text(text),
       ],
+    );
+  }
+
+  /// Graphique scatter plot comparant Volume vs Énergie pour les systèmes
+  Widget _buildGraphiqueEnergieSpecifique() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Volume vs Énergie Consommée (sur 10 ans)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Comparaison des systèmes basée sur l\'énergie spécifique des pompes',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 300,
+              child: ScatterChart(
+                ScatterChartData(
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: true,
+                    drawHorizontalLine: true,
+                    verticalInterval: 1,
+                    getDrawingVerticalLine: (value) => FlLine(
+                      color: Colors.grey[300]!,
+                      strokeWidth: 1,
+                    ),
+                    getDrawingHorizontalLine: (value) => FlLine(
+                      color: Colors.grey[300]!,
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          return SideTitleWidget(
+                            axisSide: meta.axisSide,
+                            child: Text('${value.toInt()} m³'),
+                          );
+                        },
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 60,
+                        interval: _energieAncien > _energieNouveau 
+                            ? _energieAncien / 5
+                            : _energieNouveau / 5,
+                        getTitlesWidget: (value, meta) {
+                          return SideTitleWidget(
+                            axisSide: meta.axisSide,
+                            child: Text('${value.toInt()} kWh'),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minX: 0,
+                  maxX: _volumeAncien > _volumeNouveau ? _volumeAncien * 1.1 : _volumeNouveau * 1.1,
+                  minY: 0,
+                  maxY: _energieAncien > _energieNouveau ? _energieAncien * 1.1 : _energieNouveau * 1.1,
+                  scatterSpots: [
+                    // Point pour l'ancien système
+                    ScatterSpot(
+                      _volumeAncien,
+                      _energieAncien,
+                      color: Colors.grey,
+                      radius: 8,
+                    ),
+                    // Point pour le nouveau système
+                    ScatterSpot(
+                      _volumeNouveau,
+                      _energieNouveau,
+                      color: Colors.blue,
+                      radius: 8,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildLegend('Ancien Système', Colors.grey),
+                const SizedBox(width: 16),
+                _buildLegend('Nouveau Système', Colors.blue),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Affichage des valeurs
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Ancien Système:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Volume: ${_formatNumber(_volumeAncien)} m³'),
+                    Text('Énergie: ${_formatNumber(_energieAncien)} kWh'),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text('Nouveau Système:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Volume: ${_formatNumber(_volumeNouveau)} m³'),
+                    Text('Énergie: ${_formatNumber(_energieNouveau)} kWh'),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
