@@ -42,20 +42,25 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
+      final bool isExistingSystem = widget.systemeId != null || _systemeId != null;
+      
       if (widget.systemeId != null) {
         final systeme = await _db.getSystemeById(widget.systemeId!);
         if (systeme != null) {
           _systemeId = systeme.id;
           _nomController.text = systeme.nom;
           _coutInvestissementController.text = systeme.coutInvestissementTotal.toString();
-          _isNew = false;
-          _systemeSaved = true; // Un système existant est considéré comme sauvegardé
+        }
+      } else if (_systemeId != null) {
+        // Système nouvellement créé, charger ses données
+        final systeme = await _db.getSystemeById(_systemeId!);
+        if (systeme != null) {
+          _nomController.text = systeme.nom;
+          _coutInvestissementController.text = systeme.coutInvestissementTotal.toString();
         }
       } else {
         _nomController.text = widget.nomSysteme ?? '';
         _coutInvestissementController.text = '0.0';
-        _isNew = true;
-        _systemeSaved = false;
       }
 
       if (_systemeId != null) {
@@ -64,6 +69,10 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
       } else {
         setState(() => _pompes = []);
       }
+
+      // Mettre à jour les flags après chargement
+      _isNew = !isExistingSystem;
+      _systemeSaved = isExistingSystem;
 
       setState(() => _isLoading = false);
     } catch (e) {
@@ -93,12 +102,6 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
 
       if (_isNew) {
         _systemeId = await _db.insertSysteme(systeme);
-        _isNew = false;
-        _systemeSaved = true;
-        
-        // Rafraîchir pour obtenir les données mises à jour
-        await _loadData();
-        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Système créé avec succès. Ajoutez des pompes maintenant.')),
@@ -106,14 +109,15 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
         }
       } else {
         await _db.updateSysteme(systeme);
-        _systemeSaved = true;
-        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Système mis à jour')),
           );
         }
       }
+      
+      // Rafraîchir les données après sauvegarde (pour mettre à jour _isNew, _systemeSaved, etc.)
+      await _loadData();
 
       setState(() => _isLoading = false);
     } catch (e) {
