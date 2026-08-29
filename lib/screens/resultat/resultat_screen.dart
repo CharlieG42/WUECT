@@ -227,10 +227,6 @@ class _ResultatScreenState extends State<ResultatScreen> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Graphique Énergie Spécifique - Comparaison Volume vs Énergie
-                      _buildGraphiqueEnergieSpecifique(),
-                      const SizedBox(height: 24),
-
                       // Graphique Consommation Energétique
                       _buildGraphiqueSection(
                         'Consommation Énergétique sur 10 ans',
@@ -253,6 +249,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
                         Colors.blue,
                         true,
                       ),
+                      const SizedBox(height: 24),
+
+                      // Graphique Énergie Spécifique - Comparaison Volume vs Énergie
+                      _buildGraphiqueEnergieSpecifique(),
                       const SizedBox(height: 24),
 
                       // ROI et analyse

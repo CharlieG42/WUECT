@@ -58,7 +58,7 @@ L'application calcule automatiquement :
 ### Visualisation
 - ✅ Graphique **"Consommation Énergétique (kWh) sur 10 ans"**
 - ✅ Graphique **"Coût Énergétique (€) sur 10 ans"**
-- ✅ Graphique **"Volume vs Énergie Consommée (sur 10 ans)"** - Scatter plot comparant les systèmes sur l'énergie spécifique
+- ✅ Graphique **"Volume vs Énergie Spécifique (sur 10 ans)"** - Scatter plot comparant l'efficacité énergétique des systèmes : Volume total (m³) en abscisse, Énergie consommée (kWh) en ordonnée, calculé par f(Vol) = SOMME(Vol * Énergie Spécifique pour chaque pompe)
 - ✅ Affichage des données de comparatif (économies, ROI, etc.)
 
 ---
@@ -232,24 +232,29 @@ DeltaInvestissement = coutInvestissementNouveau - coutInvestissementAncien
 ROI (années) = DeltaInvestissement / (ÉconomieTotale / 10)
 ```
 
-### 9. Graphique Volume vs Énergie (Comparatif)
-Pour le graphique scatter plot comparant les systèmes :
+### 9. Graphique Volume vs Énergie Spécifique (Comparatif)
+Pour le graphique scatter plot (3ème graphique) comparant les systèmes :
 
-**Volume total pompé sur 10 ans par système (abscisse x) :**
+**Volume total prévu sur 10 ans par système (abscisse x) :**
 ```
 Vol_système = Σ(Débit_i × heuresFonctionnement_i × 10) pour chaque pompe i du système
 ```
 
-**Énergie totale consommée par système (ordonnée y) :**
+**Énergie consommée par le système (ordonnée y) = f(Vol) :**
 ```
-Énergie_système = Σ(ÉnergieSpécifique_i × Débit_i × heuresFonctionnement_i × 10) pour chaque pompe i
+Énergie_système = Σ(Vol_i × ÉnergieSpécifique_i) pour chaque pompe i
+                 = Σ((Débit_i × heuresFonctionnement_i × 10) × (PuissanceUtilisée_i / Débit_i)) pour chaque pompe i
+                 = Σ(PuissanceUtilisée_i × heuresFonctionnement_i × 10) pour chaque pompe i
 ```
 
 Où :
 - **Débit_i** = débit de la pompe i (m³/h)
 - **heuresFonctionnement_i** = heures de fonctionnement annuelles de la pompe i
-- **ÉnergieSpécifique_i** = énergie spécifique de la pompe i (kW/m³/h)
+- **ÉnergieSpécifique_i** = énergie spécifique de la pompe i = PuissanceUtilisée_i / Débit_i (kW/m³)
+- **PuissanceUtilisée_i** = puissance réelle de la pompe i (kW)
 - Le facteur **10** représente la projection sur 10 ans
+
+Ce graphique permet de comparer visuellement l'efficacité énergétique des systèmes : plus un système est proche de l'origine (0,0), plus il est efficace pour déplacer un volume donné.
 
 ---
 
@@ -398,6 +403,7 @@ Pour chaque pompe, renseigner :
 Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :
 - **Graphique 1** : Consommation énergétique (kWh) sur 10 ans
 - **Graphique 2** : Coût énergétique (€) sur 10 ans
+- **Graphique 3** : Volume vs Énergie Spécifique (sur 10 ans) - Comparaison de l'efficacité énergétique : permet de visualiser combien d'énergie chaque système consomme pour déplacer un certain volume d'eau
 - **Données calculées** :
   - Consommation annuelle par système
   - Coût énergétique annuel par système
@@ -459,7 +465,7 @@ Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :
 
 | Version | Date | Modifications |
 |---------|------|----------------|
-| **0.0.003** | 28/08/2026 | Ajout graphique Volume vs Énergie dans comparatif. Correction flux page Système (bouton Valider & Quitter). |
+| **0.0.003** | 29/08/2026 | Ajout du 3ème graphique "Volume vs Énergie Spécifique" dans comparatif (scatter plot avec f(Vol) = SOMME(Vol * Énergie Spécifique)). Réorganisation des graphiques : Consommation → Coût → Volume vs Énergie. Correction flux page Système (bouton Valider & Quitter). |
 | **0.0.002** | 27/08/2026 | Mise à jour du README.md - Documentation complète du projet |
 | **0.0.001** | 27/08/2026 | Version initiale - Structure de base, modèles, services, écrans |
 
