@@ -15,14 +15,21 @@ class CalculService {
   /// Formule: (1 - µCoef)^(Année en cours - Année d'installation)
   /// µCoef = percentagePerteRendement / 100
   static double calculerMuPerte(double percentagePerteRendement, int anneeInstallation, int anneeEnCours) {
-    if (percentagePerteRendement >= 100.0) return 0.0; // Si perte >= 100%, rendement = 0
-    final muCoef = percentagePerteRendement / 100.0;
+    // Limiter percentagePerteRendement à [0, 100] pour éviter des calculs aberrants
+    final percentageClamped = percentagePerteRendement.clamp(0.0, 100.0);
+    
+    if (percentageClamped >= 100.0) return 0.0; // Si perte >= 100%, rendement = 0
+    final muCoef = percentageClamped / 100.0;
     final anneesEcoulees = anneeEnCours - anneeInstallation;
     
     // Si l'année d'installation est dans le futur, on considere muPerte = 1 (pas de perte)
     if (anneesEcoulees < 0) return 1.0;
     
-    return pow(1 - muCoef, anneesEcoulees).toDouble();
+    // Limiter le nombre d'années pour éviter des calculs exponentiels trop grands
+    // Au-delà de 50 ans, on considere que le rendement est à 0
+    final anneesLimitees = anneesEcoulees.clamp(0, 50);
+    
+    return pow(1 - muCoef, anneesLimitees).toDouble();
   }
 
   /// Calcule le rendement corrigé de la pompe
