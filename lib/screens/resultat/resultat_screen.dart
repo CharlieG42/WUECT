@@ -110,7 +110,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       final anneeEnCours = DateTime.now().year;
       _annees = List.generate(10, (i) => anneeEnCours + i);
 
-      // Calcul des données sur 10 ans et ROI en parallèle
+      // Calcul des données sur 10 ans en parallèle
       final donneesAncienFuture = Future(() => CalculService.calculerDonnees10AnsAvecPompes(
         _pompesAncien,
         projet,
@@ -119,26 +119,41 @@ class _ResultatScreenState extends State<ResultatScreen> {
         _pompesNouveau,
         projet,
       ));
-      final roiDataFuture = _calculService.calculerROI(
-        _systemeAncien!.id!,
-        _systemeNouveau!.id!,
-        projet,
-      );
 
-      final results = await Future.wait([
+      final results = await Future.wait<Map<String, List<double>>>([
         donneesAncienFuture,
         donneesNouveauFuture,
-        roiDataFuture,
       ]);
 
-      final donneesAncien = results[0] as Map<String, List<double>>;
-      final donneesNouveau = results[1] as Map<String, List<double>>;
-      _roiData = results[2] as Map<String, dynamic>?;
+      final donneesAncien = results[0];
+      final donneesNouveau = results[1];
 
       _consommationsAncien = donneesAncien['consommations']!;
       _consommationsNouveau = donneesNouveau['consommations']!;
       _coutsAncien = donneesAncien['coutsEnergetiques']!;
       _coutsNouveau = donneesNouveau['coutsEnergetiques']!;
+
+      // Calcul du ROI à partir des données déjà calculées
+      final coutAncienTotal = _coutsAncien.reduce((a, b) => a + b);
+      final coutNouveauTotal = _coutsNouveau.reduce((a, b) => a + b);
+      final economieTotale = coutAncienTotal - coutNouveauTotal;
+      final deltaInvestissement = _systemeNouveau!.coutInvestissementTotal - _systemeAncien!.coutInvestissementTotal;
+
+      double roiAnnee = double.infinity;
+      if (deltaInvestissement > 0 && economieTotale > 0) {
+        roiAnnee = deltaInvestissement / (economieTotale / 10);
+      } else if (deltaInvestissement <= 0 && economieTotale >= 0) {
+        roiAnnee = 0.0;
+      }
+
+      _roiData = {
+        'coutAncienTotal': coutAncienTotal,
+        'coutNouveauTotal': coutNouveauTotal,
+        'economieTotale': economieTotale,
+        'deltaInvestissement': deltaInvestissement,
+        'roiAnnee': roiAnnee,
+        'estRentable': economieTotale >= deltaInvestissement,
+      };
 
       setState(() => _isLoading = false);
     } catch (e) {
