@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import '../models/projet.dart';
+import '../models/pompe.dart';
 import 'database_service.dart';
 
 class CalculService {
@@ -61,6 +62,15 @@ class CalculService {
   /// en sommant toutes ses pompes
   Future<double> calculerConsommationAnnuelleSysteme(int systemeId, int anneeEnCours, double percentagePerteRendement) async {
     final pompes = await _db.getPompesBySystemeId(systemeId);
+    return _calculerConsommationAnnuelleSystemeAvecPompes(pompes, anneeEnCours, percentagePerteRendement);
+  }
+
+  /// Calcule la consommation annuelle totale avec les pompes déjà chargées
+  static double _calculerConsommationAnnuelleSystemeAvecPompes(
+    List<Pompe> pompes,
+    int anneeEnCours,
+    double percentagePerteRendement,
+  ) {
     double consommationTotale = 0.0;
 
     for (final pompe in pompes) {
@@ -104,13 +114,16 @@ class CalculService {
     final List<double> consommations = [];
     final List<double> coutsEnergetiques = [];
     double coutEnergieActuel = projet.coutEnergie;
+    
+    // Charger les pompes une seule fois au lieu de 10 fois
+    final pompes = await _db.getPompesBySystemeId(systemeId);
 
     for (int annee = 0; annee < 10; annee++) {
       final anneeCalcul = anneeEnCours + annee;
       
-      // Calcul de la consommation pour cette année
-      final consommation = await calculerConsommationAnnuelleSysteme(
-        systemeId,
+      // Calcul de la consommation pour cette année avec les pompes déjà chargées
+      final consommation = _calculerConsommationAnnuelleSystemeAvecPompes(
+        pompes,
         anneeCalcul,
         projet.percentagePerteRendement,
       );
@@ -138,8 +151,26 @@ class CalculService {
     int systemeNouveauId,
     Projet projet,
   ) async {
-    final donneesAncien = await calculerDonnees10Ans(systemeAncienId, projet);
-    final donneesNouveau = await calculerDonnees10Ans(systemeNouveauId, projet);
+    // Charger les systèmes et leurs pompes en parallèle
+    final systemeAncienFuture = _db.getSystemeById(systemeAncienId);
+    final systemeNouveauFuture = _db.getSystemeById(systemeNouveauId);
+    final pompesAncienFuture = _db.getPompesBySystemeId(systemeAncienId);
+    final pompesNouveauFuture = _db.getPompesBySystemeId(systemeNouveauId);
+    
+    final systemeAncien = await systemeAncienFuture;
+    final systemeNouveau = await systemeNouveauFuture;
+    final pompesAncien = await pompesAncienFuture;
+    final pompesNouveau = await pompesNouveauFuture;
+    
+    // Calculer les données pour les deux systèmes en parallèle
+    final donneesAncien = _calculerDonnees10AnsAvecPompes(
+      pompesAncien,
+      projet,
+    );
+    final donneesNouveau = _calculerDonnees10AnsAvecPompes(
+      pompesNouveau,
+      projet,
+    );
     
     // Coûts énergétiques cumulés sur 10 ans
     final coutAncienTotal = donneesAncien['coutsEnergetiques']!.reduce((a, b) => a + b);
@@ -149,8 +180,6 @@ class CalculService {
     final economieTotale = coutAncienTotal - coutNouveauTotal;
     
     // Différence de coût d'investissement
-    final systemeAncien = await _db.getSystemeById(systemeAncienId);
-    final systemeNouveau = await _db.getSystemeById(systemeNouveauId);
     final deltaInvestissement = systemeNouveau!.coutInvestissementTotal - systemeAncien!.coutInvestissementTotal;
     
     // ROI (en années)
@@ -168,6 +197,42 @@ class CalculService {
       'deltaInvestissement': deltaInvestissement,
       'roiAnnee': roiAnnee,
       'estRentable': economieTotale >= deltaInvestissement,
+    };
+  }
+
+  /// Calcule les données sur 10 ans avec les pompes déjà chargées
+  static Map<String, List<double>> _calculerDonnees10AnsAvecPompes(
+    List<Pompe> pompes,
+    Projet projet,
+  ) {
+    final anneeEnCours = DateTime.now().year;
+    final List<double> consommations = [];
+    final List<double> coutsEnergetiques = [];
+    double coutEnergieActuel = projet.coutEnergie;
+
+    for (int annee = 0; annee < 10; annee++) {
+      final anneeCalcul = anneeEnCours + annee;
+      
+      // Calcul de la consommation pour cette année
+      final consommation = _calculerConsommationAnnuelleSystemeAvecPompes(
+        pompes,
+        anneeCalcul,
+        projet.percentagePerteRendement,
+      );
+      consommations.add(consommation);
+      
+      // Calcul du coût énergétique pour cette année
+      final coutEnergie = coutEnergieActuel;
+      final cout = calculerCoutEnergetiqueAnuel(consommation, coutEnergie);
+      coutsEnergetiques.add(cout);
+      
+      // Mise à jour du coût de l'énergie pour l'année suivante
+      coutEnergieActuel *= (1 + projet.pourcentageAugmentationEnergie / 100.0);
+    }
+    
+    return {
+      'consommations': consommations,
+      'coutsEnergetiques': coutsEnergetiques,
     };
   }
 

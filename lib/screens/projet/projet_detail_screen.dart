@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
@@ -96,6 +97,26 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
 
   bool _hasAncienSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
   bool _hasNouveauSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+
+  String _formatNumber(double value) {
+    final format = NumberFormat("#,##0.0000", "fr_FR");
+    return format.format(value);
+  }
+
+  /// Calcule l'énergie spécifique moyenne pondérée par le débit pour un système
+  double _calculerEnergieSpecifiqueMoyenne(List<Pompe> pompes) {
+    if (pompes.isEmpty) return 0.0;
+    
+    final totalDebit = pompes.fold(0.0, (sum, pompe) => sum + pompe.debit);
+    if (totalDebit <= 0) return 0.0;
+    
+    final sumPonderee = pompes.fold(
+      0.0,
+      (sum, pompe) => sum + (pompe.energieSpecifique * pompe.debit),
+    );
+    
+    return sumPonderee / totalDebit;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -390,9 +411,10 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     );
   }
 
-  /// Construit une carte pour un système avec la liste de ses pompes
+  /// Constuit une carte pour un système avec la liste de ses pompes
   Widget _buildSystemeCardWithPompes(Systeme systeme) {
     final pompes = _pompesBySysteme[systeme.id] ?? [];
+    final energieSpecifiqueMoyenne = _calculerEnergieSpecifiqueMoyenne(pompes);
     
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -405,7 +427,14 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
               systeme.nom,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                if (pompes.isNotEmpty)
+                  Text('Énergie spécifique moyenne: ${_formatNumber(energieSpecifiqueMoyenne)} kW/m³/h'),
+              ],
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
