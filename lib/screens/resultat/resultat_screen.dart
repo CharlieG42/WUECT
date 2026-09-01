@@ -514,7 +514,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                     drawHorizontalLine: true,
                     verticalInterval: 1,
                     horizontalInterval: dataAncien.isNotEmpty && dataNouveau.isNotEmpty
-                        ? (dataAncien.reduce((a, b) => a > b ? a : b) - dataAncien.reduce((a, b) => a < b ? a : b)) / 5
+                        ? ((dataAncien.reduce((a, b) => a > b ? a : b) - dataAncien.reduce((a, b) => a < b ? a : b)) / 5).clamp(1.0, double.infinity)
                         : 1,
                     getDrawingVerticalLine: (value) => FlLine(
                       color: Colors.grey[300]!,
