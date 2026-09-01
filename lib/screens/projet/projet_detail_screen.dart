@@ -103,19 +103,14 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     return format.format(value);
   }
 
-  /// Calcule l'énergie spécifique moyenne pondérée par le débit pour un système
-  double _calculerEnergieSpecifiqueMoyenne(List<Pompe> pompes) {
+  /// Calcule l'énergie spécifique cumulée (somme) pour un système
+  double _calculerEnergieSpecifiqueCumulee(List<Pompe> pompes) {
     if (pompes.isEmpty) return 0.0;
     
-    final totalDebit = pompes.fold(0.0, (sum, pompe) => sum + pompe.debit);
-    if (totalDebit <= 0) return 0.0;
-    
-    final sumPonderee = pompes.fold(
+    return pompes.fold(
       0.0,
-      (sum, pompe) => sum + (pompe.energieSpecifique * pompe.debit),
+      (sum, pompe) => sum + pompe.energieSpecifique,
     );
-    
-    return sumPonderee / totalDebit;
   }
 
   @override
@@ -411,10 +406,10 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     );
   }
 
-  /// Constuit une carte pour un système avec la liste de ses pompes
+  /// Construit une carte pour un système avec la liste de ses pompes
   Widget _buildSystemeCardWithPompes(Systeme systeme) {
     final pompes = _pompesBySysteme[systeme.id] ?? [];
-    final energieSpecifiqueMoyenne = _calculerEnergieSpecifiqueMoyenne(pompes);
+    final energieSpecifiqueCumulee = _calculerEnergieSpecifiqueCumulee(pompes);
     
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -432,7 +427,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
               children: [
                 Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
                 if (pompes.isNotEmpty)
-                  Text('Énergie spécifique moyenne: ${_formatNumber(energieSpecifiqueMoyenne)} kW/m³/h'),
+                  Text('Énergie spécifique cumulée: ${_formatNumber(energieSpecifiqueCumulee)} kW/m³/h'),
               ],
             ),
             trailing: Row(

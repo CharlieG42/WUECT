@@ -236,6 +236,14 @@ class CalculService {
     };
   }
 
+  /// Calcule les données sur 10 ans avec les pompes déjà chargées (version publique)
+  static Map<String, List<double>> calculerDonnees10AnsAvecPompes(
+    List<Pompe> pompes,
+    Projet projet,
+  ) {
+    return _calculerDonnees10AnsAvecPompes(pompes, projet);
+  }
+
   /// Calcule toutes les données pour le comparatif
   Future<Map<String, dynamic>> calculerComparatifComplet(int projetId) async {
     final projet = await _db.getProjetById(projetId);

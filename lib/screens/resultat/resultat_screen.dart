@@ -94,9 +94,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
         return;
       }
 
-      // Charger les pompes pour chaque système
-      _pompesAncien = await _db.getPompesBySystemeId(_systemeAncien!.id!);
-      _pompesNouveau = await _db.getPompesBySystemeId(_systemeNouveau!.id!);
+      // Charger les pompes pour chaque système (en parallèle)
+      final pompesAncienFuture = _db.getPompesBySystemeId(_systemeAncien!.id!);
+      final pompesNouveauFuture = _db.getPompesBySystemeId(_systemeNouveau!.id!);
+      
+      _pompesAncien = await pompesAncienFuture;
+      _pompesNouveau = await pompesNouveauFuture;
       
       // Calculer volume et énergie pour chaque système
       _volumeAncien = _calculerVolumeTotal(_pompesAncien);
@@ -104,29 +107,38 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _energieAncien = _calculerEnergieTotale(_pompesAncien);
       _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
 
-      // Calcul des données sur 10 ans
-      final donneesAncien = await _calculService.calculerDonnees10Ans(
-        _systemeAncien!.id!,
+      final anneeEnCours = DateTime.now().year;
+      _annees = List.generate(10, (i) => anneeEnCours + i);
+
+      // Calcul des données sur 10 ans et ROI en parallèle
+      final donneesAncienFuture = Future(() => CalculService.calculerDonnees10AnsAvecPompes(
+        _pompesAncien,
         projet,
-      );
-      final donneesNouveau = await _calculService.calculerDonnees10Ans(
+      ));
+      final donneesNouveauFuture = Future(() => CalculService.calculerDonnees10AnsAvecPompes(
+        _pompesNouveau,
+        projet,
+      ));
+      final roiDataFuture = _calculService.calculerROI(
+        _systemeAncien!.id!,
         _systemeNouveau!.id!,
         projet,
       );
 
-      final anneeEnCours = DateTime.now().year;
-      _annees = List.generate(10, (i) => anneeEnCours + i);
+      final results = await Future.wait([
+        donneesAncienFuture,
+        donneesNouveauFuture,
+        roiDataFuture,
+      ]);
+
+      final donneesAncien = results[0] as Map<String, List<double>>;
+      final donneesNouveau = results[1] as Map<String, List<double>>;
+      _roiData = results[2] as Map<String, dynamic>?;
+
       _consommationsAncien = donneesAncien['consommations']!;
       _consommationsNouveau = donneesNouveau['consommations']!;
       _coutsAncien = donneesAncien['coutsEnergetiques']!;
       _coutsNouveau = donneesNouveau['coutsEnergetiques']!;
-
-      // Calcul du ROI
-      _roiData = await _calculService.calculerROI(
-        _systemeAncien!.id!,
-        _systemeNouveau!.id!,
-        projet,
-      );
 
       setState(() => _isLoading = false);
     } catch (e) {
