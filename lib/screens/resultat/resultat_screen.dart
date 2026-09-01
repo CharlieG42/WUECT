@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import '../../models/projet.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/calcul_service.dart';
 import '../../services/database_service.dart';
 import 'package:intl/intl.dart';
+
+// Fonction wrapper pour compute() - doit être top-level
+Map<String, List<double>> _calculerDonnees10AnsWrapper(List<dynamic> args) {
+  final pompes = args[0] as List<Pompe>;
+  final projet = args[1] as Projet;
+  return CalculService.calculerDonnees10AnsAvecPompes(pompes, projet);
+}
 
 class ResultatScreen extends StatefulWidget {
   final int projetId;
@@ -110,15 +118,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
       final anneeEnCours = DateTime.now().year;
       _annees = List.generate(10, (i) => anneeEnCours + i);
 
-      // Calcul des données sur 10 ans en parallèle
-      final donneesAncienFuture = Future(() => CalculService.calculerDonnees10AnsAvecPompes(
-        _pompesAncien,
-        projet,
-      ));
-      final donneesNouveauFuture = Future(() => CalculService.calculerDonnees10AnsAvecPompes(
-        _pompesNouveau,
-        projet,
-      ));
+      // Calcul des données sur 10 ans en parallèle (dans des isolates pour ne pas bloquer l'UI)
+      // On utilise une liste pour passer les deux arguments à la méthode statique
+      final donneesAncienFuture = compute(_calculerDonnees10AnsWrapper, [_pompesAncien, projet]);
+      final donneesNouveauFuture = compute(_calculerDonnees10AnsWrapper, [_pompesNouveau, projet]);
 
       final results = await Future.wait<Map<String, List<double>>>([
         donneesAncienFuture,

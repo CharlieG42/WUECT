@@ -22,12 +22,12 @@ class CalculService {
     final muCoef = percentageClamped / 100.0;
     final anneesEcoulees = anneeEnCours - anneeInstallation;
     
-    // Si l'année d'installation est dans le futur, on considere muPerte = 1 (pas de perte)
-    if (anneesEcoulees < 0) return 1.0;
+    // Si l'année d'installation est dans le futur ou l'année en cours, on considere muPerte = 1 (pas de perte)
+    if (anneesEcoulees <= 0) return 1.0;
     
     // Limiter le nombre d'années pour éviter des calculs exponentiels trop grands
-    // Au-delà de 50 ans, on considere que le rendement est à 0
-    final anneesLimitees = anneesEcoulees.clamp(0, 50);
+    // Au-delà de 15 ans, on considere que le rendement est à 0
+    final anneesLimitees = anneesEcoulees.clamp(0, 15);
     
     return pow(1 - muCoef, anneesLimitees).toDouble();
   }
