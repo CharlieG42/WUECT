@@ -51,14 +51,20 @@ class _ResultatScreenState extends State<ResultatScreen> {
   @override
   void initState() {
     super.initState();
+    debugPrint('[DEBUG ResultatScreen] initState appelé - projetId: ${widget.projetId}');
     _loadData();
   }
 
   Future<void> _loadData() async {
+    debugPrint('[DEBUG ResultatScreen] _loadData() démarré');
     setState(() => _isLoading = true);
     try {
+      debugPrint('[DEBUG ResultatScreen] Chargement du projet...');
       final projet = await _db.getProjetById(widget.projetId);
+      debugPrint('[DEBUG ResultatScreen] Projet chargé: ${projet?.nomSite ?? "null"}');
+      
       if (projet == null) {
+        debugPrint('[DEBUG ResultatScreen] Projet non trouvé');
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -69,8 +75,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
         return;
       }
 
+      debugPrint('[DEBUG ResultatScreen] Chargement des systèmes...');
       final systemes = await _db.getSystemesByProjetId(widget.projetId);
+      debugPrint('[DEBUG ResultatScreen] Systèmes trouvés: ${systemes.length} - ${systemes.map((s) => s.nom).toList()}');
+      
       if (systemes.length != 2) {
+        debugPrint('[DEBUG ResultatScreen] Nombre de systèmes incorrect: ${systemes.length}');
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -90,8 +100,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _systemeAncien = ancienSystems.isNotEmpty ? ancienSystems.first : null;
       _systemeNouveau = nouveauSystems.isNotEmpty ? nouveauSystems.first : null;
       
+      debugPrint('[DEBUG ResultatScreen] Système ancien: ${_systemeAncien?.nom ?? "null"}');
+      debugPrint('[DEBUG ResultatScreen] Système nouveau: ${_systemeNouveau?.nom ?? "null"}');
+      
       // Vérifier qu'on a bien trouvé les deux systèmes
       if (_systemeAncien == null || _systemeNouveau == null) {
+        debugPrint('[DEBUG ResultatScreen] Système ancien ou nouveau non trouvé');
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -103,30 +117,40 @@ class _ResultatScreenState extends State<ResultatScreen> {
       }
 
       // Charger les pompes pour chaque système (en parallèle)
+      debugPrint('[DEBUG ResultatScreen] Chargement des pompes...');
       final pompesAncienFuture = _db.getPompesBySystemeId(_systemeAncien!.id!);
       final pompesNouveauFuture = _db.getPompesBySystemeId(_systemeNouveau!.id!);
       
       _pompesAncien = await pompesAncienFuture;
       _pompesNouveau = await pompesNouveauFuture;
       
+      debugPrint('[DEBUG ResultatScreen] Pompes ancien: ${_pompesAncien.length} pompes');
+      debugPrint('[DEBUG ResultatScreen] Pompes nouveau: ${_pompesNouveau.length} pompes');
+      
       // Calculer volume et énergie pour chaque système
+      debugPrint('[DEBUG ResultatScreen] Calcul des volumes et énergies...');
       _volumeAncien = _calculerVolumeTotal(_pompesAncien);
       _volumeNouveau = _calculerVolumeTotal(_pompesNouveau);
       _energieAncien = _calculerEnergieTotale(_pompesAncien);
       _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
+      debugPrint('[DEBUG ResultatScreen] Volume ancien: $_volumeAncien, Volume nouveau: $_volumeNouveau');
+      debugPrint('[DEBUG ResultatScreen] Énergie ancien: $_energieAncien, Énergie nouveau: $_energieNouveau');
 
       final anneeEnCours = DateTime.now().year;
       _annees = List.generate(10, (i) => anneeEnCours + i);
 
       // Calcul des données sur 10 ans en parallèle (dans des isolates pour ne pas bloquer l'UI)
       // On utilise une liste pour passer les deux arguments à la méthode statique
+      debugPrint('[DEBUG ResultatScreen] Début des calculs compute...');
       final donneesAncienFuture = compute(_calculerDonnees10AnsWrapper, [_pompesAncien, projet]);
       final donneesNouveauFuture = compute(_calculerDonnees10AnsWrapper, [_pompesNouveau, projet]);
 
+      debugPrint('[DEBUG ResultatScreen] Attente des résultats compute...');
       final results = await Future.wait<Map<String, List<double>>>([
         donneesAncienFuture,
         donneesNouveauFuture,
       ]);
+      debugPrint('[DEBUG ResultatScreen] Calculs compute terminés');
 
       final donneesAncien = results[0];
       final donneesNouveau = results[1];
@@ -158,8 +182,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
         'estRentable': economieTotale >= deltaInvestissement,
       };
 
+      debugPrint('[DEBUG ResultatScreen] ROI calculé: ROI en ${_roiData!['roiAnnee']} ans, Rentable: ${_roiData!['estRentable']}');
+      debugPrint('[DEBUG ResultatScreen] _loadData() terminé avec succès');
       setState(() => _isLoading = false);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[DEBUG ResultatScreen] ERREUR dans _loadData(): $e');
+      debugPrint('[DEBUG ResultatScreen] Stack trace: $stackTrace');
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -197,6 +225,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('[DEBUG ResultatScreen] build() appelé - _isLoading: $_isLoading, _projet: ${_projet?.nomSite ?? "null"}');
     return Scaffold(
       appBar: AppBar(
         title: Text('Comparatif - ${_projet?.nomSite ?? 'Projet'}'),

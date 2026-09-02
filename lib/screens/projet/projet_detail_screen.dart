@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
@@ -101,8 +102,17 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     }
   }
 
-  bool _hasAncienSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
-  bool _hasNouveauSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+  bool _hasAncienSysteme() {
+    final result = _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
+    debugPrint('[DEBUG] _hasAncienSysteme: $result - Systèmes: ${_systemes.map((s) => s.nom).toList()}');
+    return result;
+  }
+  
+  bool _hasNouveauSysteme() {
+    final result = _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+    debugPrint('[DEBUG] _hasNouveauSysteme: $result - Systèmes: ${_systemes.map((s) => s.nom).toList()}');
+    return result;
+  }
 
   String _formatNumber(double value) {
     final format = NumberFormat("#,##0.0000", "fr_FR");
@@ -248,12 +258,18 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                         ElevatedButton.icon(
                           icon: const Icon(Icons.analytics),
                           label: const Text('Voir le Comparatif'),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ResultatScreen(projetId: widget.projetId),
-                            ),
-                          ),
+                          onPressed: () {
+                            debugPrint('[DEBUG] Bouton Voir le Comparatif cliqué - projetId: ${widget.projetId}');
+                            debugPrint('[DEBUG] Navigation vers ResultatScreen...');
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ResultatScreen(projetId: widget.projetId),
+                              ),
+                            ).then((value) {
+                              debugPrint('[DEBUG] Retour de ResultatScreen - value: $value');
+                            });
+                          },
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,
