@@ -728,7 +728,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                         getTitlesWidget: (value, meta) {
                           return SideTitleWidget(
                             axisSide: meta.axisSide,
-                            child: Text('${value.toInt()} m³'),
+                            child: Text('${(value * 1000000).toInt()} M m³'),
                           );
                         },
                       ),
@@ -737,13 +737,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 60,
-                        interval: _energieAncien > _energieNouveau 
+                        interval: (_energieAncien > _energieNouveau 
                             ? _energieAncien / 5
-                            : _energieNouveau / 5,
+                            : _energieNouveau / 5) / 1000000,
                         getTitlesWidget: (value, meta) {
                           return SideTitleWidget(
                             axisSide: meta.axisSide,
-                            child: Text('${value.toInt()} kWh'),
+                            child: Text('${(value * 1000000).toInt()} M kWh'),
                           );
                         },
                       ),
@@ -751,21 +751,21 @@ class _ResultatScreenState extends State<ResultatScreen> {
                   ),
                   borderData: FlBorderData(show: false),
                   minX: 0,
-                  maxX: _volumeAncien > _volumeNouveau ? _volumeAncien * 1.1 : _volumeNouveau * 1.1,
+                  maxX: (_volumeAncien > _volumeNouveau ? _volumeAncien : _volumeNouveau) * 1.1 / 1000000,
                   minY: 0,
-                  maxY: _energieAncien > _energieNouveau ? _energieAncien * 1.1 : _energieNouveau * 1.1,
+                  maxY: (_energieAncien > _energieNouveau ? _energieAncien : _energieNouveau) * 1.1 / 1000000,
                   scatterSpots: [
-                    // Point pour l'ancien système
+                    // Point pour l'ancien système (normalisé en millions)
                     ScatterSpot(
-                      _volumeAncien,
-                      _energieAncien,
+                      _volumeAncien / 1000000,
+                      _energieAncien / 1000000,
                       color: Colors.grey,
                       radius: 8,
                     ),
-                    // Point pour le nouveau système
+                    // Point pour le nouveau système (normalisé en millions)
                     ScatterSpot(
-                      _volumeNouveau,
-                      _energieNouveau,
+                      _volumeNouveau / 1000000,
+                      _energieNouveau / 1000000,
                       color: Colors.blue,
                       radius: 8,
                     ),
