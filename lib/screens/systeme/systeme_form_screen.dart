@@ -28,6 +28,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
   final TextEditingController _coutInvestissementController = TextEditingController();
 
   List<Pompe> _pompes = [];
+  double _esTotal = 0.0; // Énergie spécifique totale précalculée
   bool _isLoading = true;
   bool _isNew = true;
   int? _systemeId;
@@ -65,9 +66,16 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
 
       if (_systemeId != null) {
         final pompes = await _db.getPompesBySystemeId(_systemeId!);
-        setState(() => _pompes = pompes);
+        final esTotal = _calculerEsTotalFromList(pompes);
+        setState(() {
+          _pompes = pompes;
+          _esTotal = esTotal;
+        });
       } else {
-        setState(() => _pompes = []);
+        setState(() {
+          _pompes = [];
+          _esTotal = 0.0;
+        });
       }
 
       // Mettre à jour les flags après chargement
@@ -138,8 +146,9 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
           const SnackBar(content: Text('Pompe supprimée avec succès')),
         );
         await _loadData();
-        // Mettre à jour le coût total après suppression
+        // Mettre à jour le coût total et l'Es total après suppression
         _updateCoutInvestissement();
+        setState(() => _esTotal = _calculerEsTotalFromList(_pompes));
       }
     } catch (e) {
       if (mounted) {
@@ -155,9 +164,15 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     return _pompes.fold(0.0, (sum, p) => sum + p.coutInvestissement);
   }
 
+  // Calcul de l'Es total à partir d'une liste de pompes
+  double _calculerEsTotalFromList(List<Pompe> pompes) {
+    if (pompes.isEmpty) return 0.0;
+    return pompes.fold(0.0, (sum, p) => sum + p.energieSpecifique);
+  }
+
+  // Utilise la valeur précalculée
   double _calculerEsTotal() {
-    if (_pompes.isEmpty) return 0.0;
-    return _pompes.fold(0.0, (sum, p) => sum + p.energieSpecifique);
+    return _esTotal;
   }
 
   void _updateCoutInvestissement() {
@@ -225,8 +240,9 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
 
     if (result == true) {
       await _loadData();
-      // Mettre à jour le coût total après ajout/modification de pompe
+      // Mettre à jour le coût total et l'Es total après ajout/modification de pompe
       _updateCoutInvestissement();
+      setState(() => _esTotal = _calculerEsTotalFromList(_pompes));
     }
   }
 

@@ -26,6 +26,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   Contact? _contact;
   List<Systeme> _systemes = [];
   Map<int, List<Pompe>> _pompesBySysteme = {}; // systemeId -> List<Pompe>
+  Map<int, double> _energieSpecifiqueBySysteme = {}; // systemeId -> energieSpecifiqueCumulee
   bool _isLoading = true;
 
   @override
@@ -44,9 +45,13 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         
         // Charger les pompes pour chaque système
         final pompesBySysteme = <int, List<Pompe>>{};
+        final energieSpecifiqueBySysteme = <int, double>{};
+        
         for (final systeme in systemes) {
           if (systeme.id != null) {
             pompesBySysteme[systeme.id!] = await _db.getPompesBySystemeId(systeme.id!);
+            // Précalculer l'énergie spécifique cumulée pour ce système
+            energieSpecifiqueBySysteme[systeme.id!] = _calculerEnergieSpecifiqueCumulee(pompesBySysteme[systeme.id!]!);
           }
         }
         
@@ -55,6 +60,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
           _contact = contact;
           _systemes = systemes;
           _pompesBySysteme = pompesBySysteme;
+          _energieSpecifiqueBySysteme = energieSpecifiqueBySysteme;
           _isLoading = false;
         });
       } else {
@@ -409,7 +415,8 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   /// Construit une carte pour un système avec la liste de ses pompes
   Widget _buildSystemeCardWithPompes(Systeme systeme) {
     final pompes = _pompesBySysteme[systeme.id] ?? [];
-    final energieSpecifiqueCumulee = _calculerEnergieSpecifiqueCumulee(pompes);
+    // Utiliser la valeur précalculée au lieu de recalculer pendant le build
+    final energieSpecifiqueCumulee = _energieSpecifiqueBySysteme[systeme.id] ?? 0.0;
     
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
