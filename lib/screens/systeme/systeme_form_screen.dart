@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 import 'pompe_form_screen.dart';
 
 class SystemeFormScreen extends StatefulWidget {
@@ -86,9 +87,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -111,16 +110,12 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
       if (_isNew) {
         _systemeId = await _db.insertSysteme(systeme);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Système créé avec succès. Ajoutez des pompes maintenant.')),
-          );
+          ErrorHandler.showSnackBar(context, 'Système créé avec succès. Ajoutez des pompes maintenant.');
         }
       } else {
         await _db.updateSysteme(systeme);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Système mis à jour')),
-          );
+          ErrorHandler.showSnackBar(context, 'Système mis à jour');
         }
       }
       
@@ -131,9 +126,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de sauvegarde: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de sauvegarde: $e', error: true);
       }
     }
   }
@@ -142,9 +135,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     try {
       await _db.deletePompe(pompeId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pompe supprimée avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Pompe supprimée avec succès');
         await _loadData();
         // Mettre à jour le coût total et l'Es total après suppression
         _updateCoutInvestissement();
@@ -152,9 +143,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
@@ -185,9 +174,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     if (_systemeId == null) {
       // Pas de système, on ne peut pas valider
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez d\'abord créer le système')),
-        );
+        ErrorHandler.showSnackBar(context, 'Veuillez d\'abord créer le système', error: true);
       }
       return;
     }
@@ -212,9 +199,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur: $e', error: true);
       }
     }
   }
@@ -222,9 +207,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
   Future<void> _navigateToPompeForm(int? pompeId) async {
     // Vérifier qu'on a bien un système sauvegardé
     if (_systemeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sauvegarder le système d\'abord')),
-      );
+      ErrorHandler.showSnackBar(context, 'Veuillez sauvegarder le système d\'abord', error: true);
       return;
     }
 
@@ -285,6 +268,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

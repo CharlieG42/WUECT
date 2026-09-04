@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/contact.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 
 class ContactFormScreen extends StatefulWidget {
   final int? contactId;
@@ -46,9 +47,7 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -73,19 +72,13 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isNew ? 'Contact créé avec succès' : 'Contact mis à jour'),
-          ),
-        );
+        ErrorHandler.showSnackBar(context, _isNew ? 'Contact créé avec succès' : 'Contact mis à jour');
         Navigator.pop(context, true);
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de sauvegarde: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de sauvegarde: $e', error: true);
       }
     }
   }
@@ -96,16 +89,12 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
     try {
       await _db.deleteContact(widget.contactId!);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Contact supprimé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Contact supprimé avec succès');
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
@@ -130,6 +119,7 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

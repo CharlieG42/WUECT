@@ -55,20 +55,21 @@ class DatabaseService {
   // ====================
   
   Future<int> insertContact(Contact contact) async {
-    // Générer un nouvel ID auto-incrémenté
-    final newId = _generateNewId(_contactsBox.keys);
-    
-    // Créer un nouveau contact avec l'ID assigné
-    final contactWithId = Contact(
-      id: newId,
+    // Utiliser Hive.auto-increment key via `add()` pour éviter les collisions
+    final contactToInsert = Contact(
       client: contact.client,
       nom: contact.nom,
       email: contact.email,
       mobile: contact.mobile,
     );
-    
-    await _contactsBox.put(newId, contactWithId);
-    return newId;
+
+    final key = await _contactsBox.add(contactToInsert);
+    final int id = key;
+
+    // Mettre à jour l'objet stocké pour inclure l'ID
+    final contactWithId = contactToInsert.copyWith(id: id);
+    await _contactsBox.put(id, contactWithId);
+    return id;
   }
 
   Future<List<Contact>> getAllContacts() async {
@@ -95,21 +96,20 @@ class DatabaseService {
   // ====================
   
   Future<int> insertProjet(Projet projet) async {
-    // Générer un nouvel ID auto-incrémenté
-    final newId = _generateNewId(_projetsBox.keys);
-    
-    // Créer un nouveau projet avec l'ID assigné
-    final projetWithId = Projet(
-      id: newId,
+    final projetToInsert = Projet(
       nomSite: projet.nomSite,
       contactId: projet.contactId,
       coutEnergie: projet.coutEnergie,
       pourcentageAugmentationEnergie: projet.pourcentageAugmentationEnergie,
       percentagePerteRendement: projet.percentagePerteRendement,
     );
-    
-    await _projetsBox.put(newId, projetWithId);
-    return newId;
+
+    final key = await _projetsBox.add(projetToInsert);
+    final int id = key;
+
+    final projetWithId = projetToInsert.copyWith(id: id);
+    await _projetsBox.put(id, projetWithId);
+    return id;
   }
 
   Future<List<Projet>> getAllProjets() async {
@@ -136,19 +136,18 @@ class DatabaseService {
   // ====================
   
   Future<int> insertSysteme(Systeme systeme) async {
-    // Générer un nouvel ID auto-incrémenté
-    final newId = _generateNewId(_systemesBox.keys);
-    
-    // Créer un nouveau système avec l'ID assigné
-    final systemeWithId = Systeme(
-      id: newId,
+    final systemeToInsert = Systeme(
       projetId: systeme.projetId,
       nom: systeme.nom,
       coutInvestissementTotal: systeme.coutInvestissementTotal,
     );
-    
-    await _systemesBox.put(newId, systemeWithId);
-    return newId;
+
+    final key = await _systemesBox.add(systemeToInsert);
+    final int id = key;
+
+    final systemeWithId = systemeToInsert.copyWith(id: id);
+    await _systemesBox.put(id, systemeWithId);
+    return id;
   }
 
   Future<List<Systeme>> getAllSystemes() async {
@@ -181,12 +180,7 @@ class DatabaseService {
   // ====================
   
   Future<int> insertPompe(Pompe pompe) async {
-    // Générer un nouvel ID auto-incrémenté
-    final newId = _generateNewId(_pompesBox.keys);
-    
-    // Créer une nouvelle pompe avec l'ID assigné
-    final pompeWithId = Pompe(
-      id: newId,
+    final pompeToInsert = Pompe(
       systemeId: pompe.systemeId,
       marque: pompe.marque,
       modele: pompe.modele,
@@ -200,9 +194,13 @@ class DatabaseService {
       coutInvestissement: pompe.coutInvestissement,
       p1Estimee: pompe.p1Estimee,
     );
-    
-    await _pompesBox.put(newId, pompeWithId);
-    return newId;
+
+    final key = await _pompesBox.add(pompeToInsert);
+    final int id = key;
+
+    final pompeWithId = pompeToInsert.copyWith(id: id);
+    await _pompesBox.put(id, pompeWithId);
+    return id;
   }
 
   Future<List<Pompe>> getAllPompes() async {

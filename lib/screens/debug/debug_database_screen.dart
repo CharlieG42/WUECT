@@ -5,6 +5,7 @@ import '../../models/projet.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 
 class DebugDatabaseScreen extends StatefulWidget {
   const DebugDatabaseScreen({super.key});
@@ -48,9 +49,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -252,20 +251,16 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen> {
                         if (mounted) {
                           await _loadData();
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Contact test créé avec ID: $id')),
-                              );
+                              if (mounted) {
+                              ErrorHandler.showSnackBar(context, 'Contact test créé avec ID: $id');
                             }
                           });
                         }
                       } catch (e) {
                         if (mounted) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Erreur: $e')),
-                              );
+                              if (mounted) {
+                              ErrorHandler.showSnackBar(context, 'Erreur: $e', error: true);
                             }
                           });
                         }

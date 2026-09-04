@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
 import '../../utils/decimal_input_formatter.dart';
+import '../../utils/error_handler.dart';
 
 class PompeFormScreen extends StatefulWidget {
   final int systemeId;
@@ -73,9 +74,7 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -117,20 +116,38 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
 
     setState(() => _isLoading = true);
     try {
+      final puissance = double.tryParse(_puissanceNominaleController.text.replaceAll(',', '.'));
+      final debit = double.tryParse(_debitController.text.replaceAll(',', '.'));
+      final hmt = double.tryParse(_hmtController.text.replaceAll(',', '.'));
+      final rendementPompe = double.tryParse(_rendementInitialPompeController.text.replaceAll(',', '.'));
+      final rendementMoteur = double.tryParse(_rendementInitialMoteurController.text.replaceAll(',', '.'));
+      final annee = int.tryParse(_anneeInstallationController.text);
+      final heures = int.tryParse(_heuresFonctionnementController.text);
+      final cout = double.tryParse(_coutInvestissementController.text.replaceAll(',', '.'));
+      final p1Estimee = double.tryParse(_p1EstimeeController.text.replaceAll(',', '.'));
+
+      if (puissance == null || debit == null || hmt == null || rendementPompe == null || rendementMoteur == null || annee == null || heures == null || cout == null || p1Estimee == null) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ErrorHandler.showSnackBar(context, 'Veuillez vérifier les valeurs du formulaire', error: true);
+        }
+        return;
+      }
+
       final pompe = Pompe(
         id: widget.pompeId,
         systemeId: widget.systemeId,
         marque: _marqueController.text,
         modele: _modeleController.text,
-        puissanceNominale: double.parse(_puissanceNominaleController.text),
-        debit: double.parse(_debitController.text),
-        hmt: double.parse(_hmtController.text),
-        rendementInitialPompe: double.parse(_rendementInitialPompeController.text),
-        rendementInitialMoteur: double.parse(_rendementInitialMoteurController.text),
-        anneeInstallation: int.parse(_anneeInstallationController.text),
-        heuresFonctionnement: int.parse(_heuresFonctionnementController.text),
-        coutInvestissement: double.parse(_coutInvestissementController.text),
-        p1Estimee: double.parse(_p1EstimeeController.text),
+        puissanceNominale: puissance,
+        debit: debit,
+        hmt: hmt,
+        rendementInitialPompe: rendementPompe,
+        rendementInitialMoteur: rendementMoteur,
+        anneeInstallation: annee,
+        heuresFonctionnement: heures,
+        coutInvestissement: cout,
+        p1Estimee: p1Estimee,
       );
 
       if (_isNew) {
@@ -140,19 +157,13 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isNew ? 'Pompe créée avec succès' : 'Pompe mise à jour'),
-          ),
-        );
+        ErrorHandler.showSnackBar(context, _isNew ? 'Pompe créée avec succès' : 'Pompe mise à jour');
         Navigator.pop(context, true);
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de sauvegarde: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de sauvegarde: $e', error: true);
       }
     }
   }
@@ -163,16 +174,12 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
     try {
       await _db.deletePompe(widget.pompeId!);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pompe supprimée avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Pompe supprimée avec succès');
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
@@ -201,6 +208,7 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

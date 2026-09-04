@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 import '../contact/contact_form_screen.dart';
 import '../systeme/systeme_form_screen.dart';
 import '../systeme/pompe_form_screen.dart';
@@ -66,18 +73,14 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       } else {
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Projet non trouvé')),
-          );
+          ErrorHandler.showSnackBar(context, 'Projet non trouvé', error: true);
           Navigator.pop(context);
         }
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -87,16 +90,12 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       await _db.deletePompeBySystemeId(systemeId);
       await _db.deleteSysteme(systemeId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Système supprimé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Système supprimé avec succès');
         _loadData();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
@@ -134,6 +133,16 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       appBar: AppBar(
         title: Text(_projet?.nomSite ?? 'Détails du Projet'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Exporter en PDF',
+            onPressed: _exportProjetPdf,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Télécharger PDF',
+            onPressed: _saveProjetPdfLocally,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
@@ -289,6 +298,88 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     );
   }
 
+  Future<void> _exportProjetPdf() async {
+    if (_projet == null) return;
+
+    final doc = _buildProjetPdfDocument();
+
+    try {
+      final bytes = await doc.save();
+      await Printing.sharePdf(bytes: bytes, filename: '${_projet!.nomSite}_rapport.pdf');
+    } catch (e) {
+      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur export PDF: $e', error: true);
+    }
+  }
+
+  pw.Document _buildProjetPdfDocument() {
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
+          return <pw.Widget>[
+            pw.Header(level: 0, child: pw.Text('Rapport Projet - ${_projet!.nomSite}')),
+            pw.Paragraph(text: 'Client: ${_contact?.client ?? ''} - Contact: ${_contact?.nom ?? ''}'),
+            pw.SizedBox(height: 8),
+            pw.Text('Informations du Projet', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Bullet(text: 'Nom du site: ${_projet!.nomSite}'),
+            pw.Bullet(text: 'Coût énergie: ${_projet!.coutEnergie} €/kWh'),
+            pw.Bullet(text: 'Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
+            pw.Bullet(text: 'Perte rendement/an: ${_projet!.percentagePerteRendement}%'),
+            pw.SizedBox(height: 12),
+            pw.Text('Systèmes et Pompes', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            for (final systeme in _systemes) pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.SizedBox(height: 8),
+                pw.Text(systeme.nom, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                pw.SizedBox(height: 6),
+                if ((_pompesBySysteme[systeme.id] ?? []).isEmpty)
+                  pw.Text('Aucune pompe')
+                else
+                  pw.Table.fromTextArray(
+                    headers: ['Marque/Modèle', 'P (kW)', 'Débit (m³/h)', 'HMT', 'Es', 'Heures', 'Coût'],
+                    data: (_pompesBySysteme[systeme.id] ?? []).map((pmp) => [
+                      '${pmp.marque} ${pmp.modele}',
+                      pmp.puissanceNominale.toStringAsFixed(2),
+                      pmp.debit.toStringAsFixed(2),
+                      pmp.hmt.toStringAsFixed(2),
+                      pmp.energieSpecifique.toStringAsFixed(4),
+                      pmp.heuresFonctionnement.toString(),
+                      pmp.coutInvestissement.toStringAsFixed(2),
+                    ]).toList(),
+                  ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    return doc;
+  }
+
+  Future<void> _saveProjetPdfLocally() async {
+    if (_projet == null) return;
+
+    final doc = _buildProjetPdfDocument();
+    try {
+      final bytes = await doc.save();
+      final dir = await getApplicationDocumentsDirectory();
+      final safeName = _projet!.nomSite.replaceAll(RegExp(r"[^a-zA-Z0-9_\-]"), '_');
+      final filePath = p.join(dir.path, '${safeName}_rapport.pdf');
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'PDF sauvegardé: $filePath');
+      }
+    } catch (e) {
+      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur sauvegarde PDF: $e', error: true);
+    }
+  }
+
   Future<void> _showEditProjetDialog() async {
     if (_projet == null) return;
     
@@ -346,9 +437,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
                       Navigator.pop(dialogContext);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Projet mis à jour')),
-                      );
+                      ErrorHandler.showSnackBar(context, 'Projet mis à jour');
                       _loadData();
                     }
                   });
@@ -358,9 +447,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
                       Navigator.pop(dialogContext);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Erreur: $e')),
-                      );
+                      ErrorHandler.showSnackBar(context, 'Erreur: $e', error: true);
                     }
                   });
                 }
@@ -580,16 +667,12 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     try {
       await _db.deletePompe(pompeId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pompe supprimée avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Pompe supprimée avec succès');
         _loadData();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }

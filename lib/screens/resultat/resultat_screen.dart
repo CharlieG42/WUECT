@@ -7,6 +7,7 @@ import '../../models/pompe.dart';
 import '../../services/calcul_service.dart';
 import '../../services/database_service.dart';
 import 'package:intl/intl.dart';
+import '../../utils/error_handler.dart';
 
 // Fonction wrapper pour compute() - doit être top-level
 Map<String, List<double>> _calculerDonnees10AnsWrapper(List<dynamic> args) {
@@ -67,9 +68,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         debugPrint('[DEBUG ResultatScreen] Projet non trouvé');
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Projet non trouvé')),
-          );
+          ErrorHandler.showSnackBar(context, 'Projet non trouvé', error: true);
           Navigator.pop(context);
         }
         return;
@@ -83,9 +82,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         debugPrint('[DEBUG ResultatScreen] Nombre de systèmes incorrect: ${systemes.length}');
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Un projet doit avoir exactement 2 systèmes pour le comparatif')),
-          );
+          ErrorHandler.showSnackBar(context, 'Un projet doit avoir exactement 2 systèmes pour le comparatif', error: true);
           Navigator.pop(context);
         }
         return;
@@ -108,9 +105,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         debugPrint('[DEBUG ResultatScreen] Système ancien ou nouveau non trouvé');
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Les systèmes doivent contenir "Ancien" et "Nouveau" dans leur nom')),
-          );
+          ErrorHandler.showSnackBar(context, 'Les systèmes doivent contenir "Ancien" et "Nouveau" dans leur nom', error: true);
           Navigator.pop(context);
         }
         return;
@@ -190,9 +185,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       debugPrint('[DEBUG ResultatScreen] Stack trace: $stackTrace');
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de calcul: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de calcul: $e', error: true);
       }
     }
   }

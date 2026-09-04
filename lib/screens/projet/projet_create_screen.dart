@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../services/database_service.dart';
+import '../../utils/decimal_input_formatter.dart';
+import '../../utils/error_handler.dart';
 import '../contact/contact_form_screen.dart';
 
 class ProjetCreateScreen extends StatefulWidget {
@@ -54,9 +56,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement des contacts: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement des contacts: $e', error: true);
       }
     }
   }
@@ -66,37 +66,43 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
     
     if (_selectedContactId == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez sélectionner un contact')),
-        );
+        ErrorHandler.showSnackBar(context, 'Veuillez sélectionner un contact', error: true);
       }
       return;
     }
 
     setState(() => _isLoading = true);
     try {
+      final cout = double.tryParse(_coutEnergieController.text.replaceAll(',', '.'));
+      final aug = double.tryParse(_pourcentageAugmentationEnergieController.text.replaceAll(',', '.'));
+      final perte = double.tryParse(_percentagePerteRendementController.text.replaceAll(',', '.'));
+
+      if (cout == null || aug == null || perte == null) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ErrorHandler.showSnackBar(context, 'Veuillez vérifier les valeurs numériques', error: true);
+        }
+        return;
+      }
+
       final projet = Projet(
         nomSite: _nomSiteController.text,
         contactId: _selectedContactId!,
-        coutEnergie: double.parse(_coutEnergieController.text),
-        pourcentageAugmentationEnergie: double.parse(_pourcentageAugmentationEnergieController.text),
-        percentagePerteRendement: double.parse(_percentagePerteRendementController.text),
+        coutEnergie: cout,
+        pourcentageAugmentationEnergie: aug,
+        percentagePerteRendement: perte,
       );
-      
+
       await _db.insertProjet(projet);
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Projet créé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Projet créé avec succès');
         Navigator.pop(context, true);
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de sauvegarde: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de sauvegarde: $e', error: true);
       }
     }
   }
@@ -113,6 +119,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
               padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -185,6 +192,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.number,
+                      inputFormatters: [DecimalTextInputFormatter()],
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Veuillez entrer un coût';
@@ -206,6 +214,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
                         suffixText: '%',
                       ),
                       keyboardType: TextInputType.number,
+                      inputFormatters: [DecimalTextInputFormatter()],
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Veuillez entrer un pourcentage';
@@ -227,6 +236,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
                         suffixText: '%',
                       ),
                       keyboardType: TextInputType.number,
+                      inputFormatters: [DecimalTextInputFormatter()],
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Veuillez entrer un pourcentage';
