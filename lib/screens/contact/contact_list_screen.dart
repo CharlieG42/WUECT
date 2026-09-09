@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/contact.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 import 'contact_form_screen.dart';
 
 class ContactListScreen extends StatefulWidget {
@@ -32,9 +33,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -43,16 +42,12 @@ class _ContactListScreenState extends State<ContactListScreen> {
     try {
       await _db.deleteContact(contactId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Contact supprimé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Contact supprimé avec succès');
         _loadContacts();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }

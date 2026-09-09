@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 import 'projet_create_screen.dart';
 import 'projet_detail_screen.dart';
 
@@ -37,9 +38,7 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -48,16 +47,12 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
     try {
       await _db.deleteProjetAndRelatedData(projetId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Projet supprimé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Projet supprimé avec succès');
         _loadData();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }

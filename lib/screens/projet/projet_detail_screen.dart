@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'dart:io';
+
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
+import '../../utils/error_handler.dart';
 import '../contact/contact_form_screen.dart';
 import '../systeme/systeme_form_screen.dart';
 import '../systeme/pompe_form_screen.dart';
@@ -25,6 +34,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   Contact? _contact;
   List<Systeme> _systemes = [];
   Map<int, List<Pompe>> _pompesBySysteme = {}; // systemeId -> List<Pompe>
+  Map<int, double> _energieSpecifiqueBySysteme = {}; // systemeId -> energieSpecifiqueCumulee
   bool _isLoading = true;
 
   @override
@@ -43,9 +53,13 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         
         // Charger les pompes pour chaque système
         final pompesBySysteme = <int, List<Pompe>>{};
+        final energieSpecifiqueBySysteme = <int, double>{};
+        
         for (final systeme in systemes) {
           if (systeme.id != null) {
             pompesBySysteme[systeme.id!] = await _db.getPompesBySystemeId(systeme.id!);
+            // Précalculer l'énergie spécifique cumulée pour ce système
+            energieSpecifiqueBySysteme[systeme.id!] = _calculerEnergieSpecifiqueCumulee(pompesBySysteme[systeme.id!]!);
           }
         }
         
@@ -54,23 +68,20 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
           _contact = contact;
           _systemes = systemes;
           _pompesBySysteme = pompesBySysteme;
+          _energieSpecifiqueBySysteme = energieSpecifiqueBySysteme;
           _isLoading = false;
         });
       } else {
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Projet non trouvé')),
-          );
+          ErrorHandler.showSnackBar(context, 'Projet non trouvé', error: true);
           Navigator.pop(context);
         }
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -80,22 +91,42 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       await _db.deletePompeBySystemeId(systemeId);
       await _db.deleteSysteme(systemeId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Système supprimé avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Système supprimé avec succès');
         _loadData();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
 
-  bool _hasAncienSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
-  bool _hasNouveauSysteme() => _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+  bool _hasAncienSysteme() {
+    final result = _systemes.any((s) => s.nom.toLowerCase().contains('ancien'));
+    debugPrint('[DEBUG] _hasAncienSysteme: $result - Systèmes: ${_systemes.map((s) => s.nom).toList()}');
+    return result;
+  }
+  
+  bool _hasNouveauSysteme() {
+    final result = _systemes.any((s) => s.nom.toLowerCase().contains('nouveau'));
+    debugPrint('[DEBUG] _hasNouveauSysteme: $result - Systèmes: ${_systemes.map((s) => s.nom).toList()}');
+    return result;
+  }
+
+  String _formatNumber(double value) {
+    final format = NumberFormat("#,##0.0000", "fr_FR");
+    return format.format(value);
+  }
+
+  /// Calcule l'énergie spécifique cumulée (somme) pour un système
+  double _calculerEnergieSpecifiqueCumulee(List<Pompe> pompes) {
+    if (pompes.isEmpty) return 0.0;
+    
+    return pompes.fold(
+      0.0,
+      (sum, pompe) => sum + pompe.energieSpecifique,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +134,16 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       appBar: AppBar(
         title: Text(_projet?.nomSite ?? 'Détails du Projet'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Exporter en PDF',
+            onPressed: _exportProjetPdf,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Télécharger PDF',
+            onPressed: _saveProjetPdfLocally,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
@@ -226,12 +267,18 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                         ElevatedButton.icon(
                           icon: const Icon(Icons.analytics),
                           label: const Text('Voir le Comparatif'),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ResultatScreen(projetId: widget.projetId),
-                            ),
-                          ),
+                          onPressed: () {
+                            debugPrint('[DEBUG] Bouton Voir le Comparatif cliqué - projetId: ${widget.projetId}');
+                            debugPrint('[DEBUG] Navigation vers ResultatScreen...');
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ResultatScreen(projetId: widget.projetId),
+                              ),
+                            ).then((value) {
+                              debugPrint('[DEBUG] Retour de ResultatScreen - value: $value');
+                            });
+                          },
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,
@@ -250,6 +297,88 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                   ),
                 ),
     );
+  }
+
+  Future<void> _exportProjetPdf() async {
+    if (_projet == null) return;
+
+    final doc = _buildProjetPdfDocument();
+
+    try {
+      final bytes = await doc.save();
+      await Printing.sharePdf(bytes: bytes, filename: '${_projet!.nomSite}_rapport.pdf');
+    } catch (e) {
+      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur export PDF: $e', error: true);
+    }
+  }
+
+  pw.Document _buildProjetPdfDocument() {
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
+          return <pw.Widget>[
+            pw.Header(level: 0, child: pw.Text('Rapport Projet - ${_projet!.nomSite}')),
+            pw.Paragraph(text: 'Client: ${_contact?.client ?? ''} - Contact: ${_contact?.nom ?? ''}'),
+            pw.SizedBox(height: 8),
+            pw.Text('Informations du Projet', style: const pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.Bullet(text: 'Nom du site: ${_projet!.nomSite}'),
+            pw.Bullet(text: 'Coût énergie: ${_projet!.coutEnergie} €/kWh'),
+            pw.Bullet(text: 'Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
+            pw.Bullet(text: 'Perte rendement/an: ${_projet!.percentagePerteRendement}%'),
+            pw.SizedBox(height: 12),
+            pw.Text('Systèmes et Pompes', style: const pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            for (final systeme in _systemes) pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.SizedBox(height: 8),
+                pw.Text(systeme.nom, style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                pw.SizedBox(height: 6),
+                if ((_pompesBySysteme[systeme.id] ?? []).isEmpty)
+                  pw.Text('Aucune pompe')
+                else
+                  pw.Table.fromTextArray(
+                    headers: ['Marque/Modèle', 'P (kW)', 'Débit (m³/h)', 'HMT', 'Es', 'Heures', 'Coût'],
+                    data: (_pompesBySysteme[systeme.id] ?? []).map((pmp) => [
+                      '${pmp.marque} ${pmp.modele}',
+                      pmp.puissanceNominale.toStringAsFixed(2),
+                      pmp.debit.toStringAsFixed(2),
+                      pmp.hmt.toStringAsFixed(2),
+                      pmp.energieSpecifique.toStringAsFixed(4),
+                      pmp.heuresFonctionnement.toString(),
+                      pmp.coutInvestissement.toStringAsFixed(2),
+                    ]).toList(),
+                  ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    return doc;
+  }
+
+  Future<void> _saveProjetPdfLocally() async {
+    if (_projet == null) return;
+
+    final doc = _buildProjetPdfDocument();
+    try {
+      final bytes = await doc.save();
+      final dir = await getApplicationDocumentsDirectory();
+      final safeName = _projet!.nomSite.replaceAll(RegExp(r"[^a-zA-Z0-9_\-]"), '_');
+      final filePath = p.join(dir.path, '${safeName}_rapport.pdf');
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'PDF sauvegardé: $filePath');
+      }
+    } catch (e) {
+      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur sauvegarde PDF: $e', error: true);
+    }
   }
 
   Future<void> _showEditProjetDialog() async {
@@ -309,9 +438,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
                       Navigator.pop(dialogContext);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Projet mis à jour')),
-                      );
+                      ErrorHandler.showSnackBar(context, 'Projet mis à jour');
                       _loadData();
                     }
                   });
@@ -321,9 +448,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
                       Navigator.pop(dialogContext);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Erreur: $e')),
-                      );
+                      ErrorHandler.showSnackBar(context, 'Erreur: $e', error: true);
                     }
                   });
                 }
@@ -393,6 +518,8 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   /// Construit une carte pour un système avec la liste de ses pompes
   Widget _buildSystemeCardWithPompes(Systeme systeme) {
     final pompes = _pompesBySysteme[systeme.id] ?? [];
+    // Utiliser la valeur précalculée au lieu de recalculer pendant le build
+    final energieSpecifiqueCumulee = _energieSpecifiqueBySysteme[systeme.id] ?? 0.0;
     
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -405,7 +532,14 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
               systeme.nom,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                if (pompes.isNotEmpty)
+                  Text('Énergie spécifique cumulée: ${_formatNumber(energieSpecifiqueCumulee)} kW/m³/h'),
+              ],
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -534,16 +668,12 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     try {
       await _db.deletePompe(pompeId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pompe supprimée avec succès')),
-        );
+        ErrorHandler.showSnackBar(context, 'Pompe supprimée avec succès');
         _loadData();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de suppression: $e')),
-        );
+        ErrorHandler.showSnackBar(context, 'Erreur de suppression: $e', error: true);
       }
     }
   }
