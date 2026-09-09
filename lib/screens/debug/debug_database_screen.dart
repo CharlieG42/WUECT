@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'package:wu_ect/utils/hive_init.dart';
 import '../../models/contact.dart';
 import '../../models/projet.dart';
 import '../../models/systeme.dart';
@@ -57,39 +57,10 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen> {
 
   Future<void> _getHivePath() async {
     try {
-      // Chemin selon la plateforme
-      String path;
-      
-      // Sur desktop (Windows, Linux, macOS), Hive utilise le système de fichiers
-      // Sur Web, Hive utilise IndexedDB
-      // Sur mobile, Hive utilise le stockage interne de l'app
-      
-      // Note: En mode Web, Hive ne donne pas accès au chemin physique
-      // car il utilise IndexedDB du navigateur
-      
-      // Pour Flutter Desktop
-      if (defaultTargetPlatform == TargetPlatform.windows) {
-        path = '%LOCALAPPDATA%<package>app_datahive';
-      } else if (defaultTargetPlatform == TargetPlatform.linux) {
-        path = '~/.local/share/<package>/hive';
-      } else if (defaultTargetPlatform == TargetPlatform.macOS) {
-        path = '~/Library/Application Support/<package>/hive';
-      } else if (defaultTargetPlatform == TargetPlatform.android) {
-        path = '/data/data/<package>/app_flutter/hive';
-      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-        path = 'Documents/hive';
-      } else {
-        // Web
-        path = 'Web: IndexedDB (visible via DevTools F12 > Application > IndexedDB)';
-      }
-      
-      setState(() {
-        _hivePath = path;
-      });
+      final path = await getEffectiveHivePath();
+      setState(() => _hivePath = path);
     } catch (e) {
-      setState(() {
-        _hivePath = 'Erreur: $e';
-      });
+      setState(() => _hivePath = 'Erreur: $e');
     }
   }
 
@@ -224,13 +195,14 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen> {
                   _buildTableCard(
                     'Pompes',
                     _pompes,
-                    ['ID', 'Système ID', 'Nom', 'Puissance', 'Rendement'],
+                    ['ID', 'Système ID', 'Marque', 'Modèle', 'Puissance (kW)', 'Rendement (%)'],
                     [
                       (p) => p.id,
                       (p) => p.systemeId,
-                      (p) => p.nom,
-                      (p) => p.puissance,
-                      (p) => p.rendement,
+                      (p) => p.marque,
+                      (p) => p.modele,
+                      (p) => p.puissanceNominale,
+                      (p) => p.rendementInitialPompe,
                     ],
                   ),
                   

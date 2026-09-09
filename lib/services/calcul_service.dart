@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import '../models/projet.dart';
+import '../models/pompe.dart';
 import 'database_service.dart';
 
 class CalculService {
@@ -132,6 +133,53 @@ class CalculService {
     };
   }
 
+  /// Pure function variant that computes consommations and couts from a list of pompes
+  /// This can be used with `compute` to run off the UI thread. Expects plain data objects.
+  static Future<Map<String, List<double>>> calculerDonnees10AnsFromPompes(
+    List<Pompe> pompes,
+    Projet projet,
+  ) async {
+    final anneeEnCours = DateTime.now().year;
+    final List<double> consommations = [];
+    final List<double> coutsEnergetiques = [];
+    double coutEnergieActuel = projet.coutEnergie;
+
+    for (int annee = 0; annee < 10; annee++) {
+      final anneeCalcul = anneeEnCours + annee;
+      double consommationTotale = 0.0;
+
+      for (final pompe in pompes) {
+        final muPerte = calculerMuPerte(
+          projet.percentagePerteRendement,
+          pompe.anneeInstallation,
+          anneeCalcul,
+        );
+        final muPompeCorrige = calculerMuPompeCorrige(pompe.rendementInitialPompe, muPerte);
+        final muMoteurCorrige = calculerMuPompeCorrige(pompe.rendementInitialMoteur, muPerte);
+
+        consommationTotale += calculerConsommationAnnuellePompe(
+          pompe.debit,
+          pompe.hmt,
+          muPompeCorrige,
+          muMoteurCorrige,
+          pompe.heuresFonctionnement,
+        );
+      }
+
+      consommations.add(consommationTotale);
+      final cout = calculerCoutEnergetiqueAnuel(consommationTotale, coutEnergieActuel);
+      coutsEnergetiques.add(cout);
+
+      coutEnergieActuel *= (1 + projet.pourcentageAugmentationEnergie / 100.0);
+    }
+
+    return {
+      'consommations': consommations,
+      'coutsEnergetiques': coutsEnergetiques,
+    };
+  }
+
+
   /// Calcule le ROI entre deux systèmes sur 10 ans
   Future<Map<String, dynamic>> calculerROI(
     int systemeAncienId,
@@ -216,3 +264,15 @@ class CalculService {
     await _db.close();
   }
 }
+
+/// Top-level helper for use with `compute` — accepts serialized maps.
+Future<Map<String, List<double>>> computeDonnees10AnsSerialized(Map args) async {
+  final pompesList = (args['pompes'] as List).cast<Map<String, dynamic>>();
+  final projetMap = Map<String, dynamic>.from(args['projet'] as Map);
+
+  final pompes = pompesList.map((m) => Pompe.fromMap(m)).toList();
+  final projet = Projet.fromMap(projetMap);
+
+  return await CalculService.calculerDonnees10AnsFromPompes(pompes, projet);
+}
+

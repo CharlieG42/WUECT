@@ -398,6 +398,9 @@ Pour chaque pompe, renseigner :
 - Année d'installation
 - Heures de fonctionnement par an
 - Coût d'investissement (€)
+### 4. Générer le build de production
+### 4. Générer le build de production
+### 4. Générer le build de production
 
 ### 5. Résultats et Comparatifs
 Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :

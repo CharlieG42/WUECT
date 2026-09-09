@@ -1,5 +1,10 @@
+import 'dart:async';
+
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:hive/hive.dart';
+import 'utils/hive_init.dart';
 import 'screens/home_screen.dart';
 import 'models/contact.dart';
 import 'models/projet.dart';
@@ -9,19 +14,32 @@ import 'services/database_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialiser Hive pour Flutter
-  await Hive.initFlutter();
-  
+
+  // Initialiser Hive (utilise un init conditionnel qui respecte web)
+  await initHive();
+
   // Enregistrer les adapters Hive AVANT d'ouvrir les boxes
   Hive.registerAdapter(ContactAdapter());
   Hive.registerAdapter(ProjetAdapter());
   Hive.registerAdapter(SystemeAdapter());
   Hive.registerAdapter(PompeAdapter());
-  
+
   // Initialiser les boxes de la base de données
   await DatabaseService.init();
-  
+
+  // Global error handlers to capture uncaught errors and stack traces
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.dumpErrorToConsole(details);
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    // ignore: avoid_print
+    print('Uncaught async error: $error');
+    // ignore: avoid_print
+    print(stack);
+    return true; // handled
+  };
+
   runApp(const MyApp());
 }
 

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../models/contact.dart';
 import '../models/projet.dart';
 import '../models/systeme.dart';
@@ -42,12 +46,42 @@ class DatabaseService {
   // Initialisation des boxes
   static Future<void> init() async {
     // Enregistrer les adapters (fait automatiquement par le code généré)
-    
-    // Ouvrir les boxes
-    instance._contactsBox = await Hive.openBox<Contact>(HiveBoxNames.contacts);
-    instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
-    instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
-    instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
+
+    // Ouvrir les boxes — essayer d'abord le chemin configuré (p.ex. OneDrive).
+    try {
+      instance._contactsBox = await Hive.openBox<Contact>(HiveBoxNames.contacts);
+      instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
+      instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
+      instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
+    } catch (e) {
+      // Si l'ouverture échoue (verrous OneDrive, permissions...), basculer
+      // vers un répertoire local d'application pour éviter les locks.
+      // Log pour diagnostic
+      // ignore: avoid_print
+      print('DatabaseService.init: failed to open Hive boxes: $e');
+      // Tentative de fermeture propre avant de réinitialiser
+      try {
+        await Hive.close();
+      } catch (_) {}
+
+      final appDir = await getApplicationSupportDirectory();
+      final fallbackDir = path.join(appDir.path, 'wu_ect_hive');
+      final dir = Directory(fallbackDir);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      // Réinitialiser Hive sur le dossier local
+      Hive.init(fallbackDir);
+
+      // Réessayer l'ouverture des boxes
+      instance._contactsBox = await Hive.openBox<Contact>(HiveBoxNames.contacts);
+      instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
+      instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
+      instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
+      // ignore: avoid_print
+      print('DatabaseService.init: switched to fallback Hive directory: $fallbackDir');
+    }
   }
 
   // ====================

@@ -4,6 +4,9 @@ import '../../models/projet.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/calcul_service.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
+import 'package:wu_ect/utils/decimation.dart';
 import '../../services/database_service.dart';
 import 'package:intl/intl.dart';
 
@@ -27,8 +30,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
   List<double> _consommationsNouveau = [];
   List<double> _coutsAncien = [];
   List<double> _coutsNouveau = [];
+  // Precomputed downsampled points for charts
+  List<FlSpot> _spotsConsommationAncien = [];
+  List<FlSpot> _spotsConsommationNouveau = [];
+  List<FlSpot> _spotsCoutAncien = [];
+  List<FlSpot> _spotsCoutNouveau = [];
   List<int> _annees = [];
   Map<String, dynamic>? _roiData;
+  String _debugInfo = '';
   
   // Données pour le graphique énergie spécifique
   List<Pompe> _pompesAncien = [];
@@ -39,6 +48,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
   double _energieNouveau = 0;
   
   bool _isLoading = true;
+  // Safe mode disables complex chart rendering to help diagnose native crashes
+  bool _safeMode = false;
 
   @override
   void initState() {
@@ -46,10 +57,103 @@ class _ResultatScreenState extends State<ResultatScreen> {
     _loadData();
   }
 
+  Widget _buildPlaceholder(String title) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const SizedBox(
+              height: 200,
+              child: Center(child: Text('Charts disabled (safe mode)')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGraphiqueFromSpots(
+    String title,
+    String unite,
+    List<FlSpot> ancien,
+    List<FlSpot> nouveau,
+    Color colorAncien,
+    Color colorNouveau,
+    bool isCurrency,
+  ) {
+    if (ancien.isEmpty && nouveau.isEmpty) {
+      return _buildPlaceholder(title);
+    }
+
+    final minX = 0.0;
+    var maxX = math.max(
+      ancien.isNotEmpty ? ancien.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
+      nouveau.isNotEmpty ? nouveau.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
+    );
+    var minY = math.min(
+      ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
+      nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
+    );
+    var maxY = math.max(
+      ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
+      nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
+    );
+
+    // Guard against degenerate ranges (min == max) which can crash native rendering
+    if (maxX <= minX) {
+      maxX = minX + 1.0;
+    }
+    if (maxY <= minY) {
+      // Expand by 1% or absolute 1.0 if value is 0
+      final delta = (minY.abs() * 0.01).clamp(1.0, double.infinity);
+      maxY = minY + delta;
+    }
+
+    debugPrint('Graphique "$title": points ancien=${ancien.length} nouveau=${nouveau.length} minX=$minX maxX=$maxX minY=$minY maxY=$maxY');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 300,
+              child: _SimpleLineChart(
+                ancien: ancien,
+                nouveau: nouveau,
+                colorAncien: colorAncien,
+                colorNouveau: colorNouveau,
+                minX: minX,
+                maxX: maxX,
+                minY: minY,
+                maxY: maxY,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
+      final stopwatch = Stopwatch()..start();
       final projet = await _db.getProjetById(widget.projetId);
+      debugPrint('ResultatScreen: loaded projet in ${stopwatch.elapsedMilliseconds} ms');
       if (projet == null) {
         setState(() => _isLoading = false);
         if (mounted) {
@@ -97,6 +201,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       // Charger les pompes pour chaque système
       _pompesAncien = await _db.getPompesBySystemeId(_systemeAncien!.id!);
       _pompesNouveau = await _db.getPompesBySystemeId(_systemeNouveau!.id!);
+      debugPrint('ResultatScreen: loaded pompes in ${stopwatch.elapsedMilliseconds} ms (ancien=${_pompesAncien.length}, nouveau=${_pompesNouveau.length})');
       
       // Calculer volume et énergie pour chaque système
       _volumeAncien = _calculerVolumeTotal(_pompesAncien);
@@ -104,15 +209,33 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _energieAncien = _calculerEnergieTotale(_pompesAncien);
       _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
 
-      // Calcul des données sur 10 ans
-      final donneesAncien = await _calculService.calculerDonnees10Ans(
-        _systemeAncien!.id!,
-        projet,
+      // Calcul des données sur 10 ans (exécuté hors UI via compute)
+      // Serialize pompes and projet for compute (isolates require sendable values)
+      final serializeStart = stopwatch.elapsedMilliseconds;
+      final ancienArgs = {
+        'pompes': _pompesAncien.map((p) => p.toMap()).toList(),
+        'projet': projet.toMap(),
+      };
+      final nouveauArgs = {
+        'pompes': _pompesNouveau.map((p) => p.toMap()).toList(),
+        'projet': projet.toMap(),
+      };
+      debugPrint('ResultatScreen: serialized args in ${stopwatch.elapsedMilliseconds - serializeStart} ms');
+
+      final computeStart = stopwatch.elapsedMilliseconds;
+      final donneesAncien = await compute(
+        computeDonnees10AnsSerialized,
+        ancienArgs,
       );
-      final donneesNouveau = await _calculService.calculerDonnees10Ans(
-        _systemeNouveau!.id!,
-        projet,
+      debugPrint('ResultatScreen: compute ancien finished in ${stopwatch.elapsedMilliseconds - computeStart} ms');
+
+      final computeStart2 = stopwatch.elapsedMilliseconds;
+      final donneesNouveau = await compute(
+        computeDonnees10AnsSerialized,
+        nouveauArgs,
       );
+      debugPrint('ResultatScreen: compute nouveau finished in ${stopwatch.elapsedMilliseconds - computeStart2} ms');
+      debugPrint('ResultatScreen: total time ${stopwatch.elapsedMilliseconds} ms');
 
       final anneeEnCours = DateTime.now().year;
       _annees = List.generate(10, (i) => anneeEnCours + i);
@@ -121,12 +244,73 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _coutsAncien = donneesAncien['coutsEnergetiques']!;
       _coutsNouveau = donneesNouveau['coutsEnergetiques']!;
 
-      // Calcul du ROI
-      _roiData = await _calculService.calculerROI(
-        _systemeAncien!.id!,
-        _systemeNouveau!.id!,
-        projet,
-      );
+      // Prepare downsampled spots via compute (isolated)
+      try {
+        final spotsAncien = await compute(computeDownsampleSerialized, {
+          'values': _consommationsAncien,
+          'maxPoints': 500,
+        });
+        final spotsNouveau = await compute(computeDownsampleSerialized, {
+          'values': _consommationsNouveau,
+          'maxPoints': 500,
+        });
+        final spotsCoutAncien = await compute(computeDownsampleSerialized, {
+          'values': _coutsAncien,
+          'maxPoints': 500,
+        });
+        final spotsCoutNouveau = await compute(computeDownsampleSerialized, {
+          'values': _coutsNouveau,
+          'maxPoints': 500,
+        });
+
+        _spotsConsommationAncien = spotsAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
+        _spotsConsommationNouveau = spotsNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
+        _spotsCoutAncien = spotsCoutAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
+        _spotsCoutNouveau = spotsCoutNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
+      } catch (e) {
+        // Fallback: generate straightforward spots
+        _spotsConsommationAncien = List.generate(_consommationsAncien.length, (i) => FlSpot(i.toDouble(), _consommationsAncien[i]));
+        _spotsConsommationNouveau = List.generate(_consommationsNouveau.length, (i) => FlSpot(i.toDouble(), _consommationsNouveau[i]));
+        _spotsCoutAncien = List.generate(_coutsAncien.length, (i) => FlSpot(i.toDouble(), _coutsAncien[i]));
+        _spotsCoutNouveau = List.generate(_coutsNouveau.length, (i) => FlSpot(i.toDouble(), _coutsNouveau[i]));
+      }
+
+      // Build debug info to display on screen
+      final debugBuf = StringBuffer();
+      debugBuf.writeln('safeMode=$_safeMode');
+      debugBuf.writeln('consommationsAncien=${_consommationsAncien.length} spotsAncien=${_spotsConsommationAncien.length}');
+      debugBuf.writeln('consommationsNouveau=${_consommationsNouveau.length} spotsNouveau=${_spotsConsommationNouveau.length}');
+      debugBuf.writeln('coutsAncien=${_coutsAncien.length} spotsCoutAncien=${_spotsCoutAncien.length}');
+      debugBuf.writeln('coutsNouveau=${_coutsNouveau.length} spotsCoutNouveau=${_spotsCoutNouveau.length}');
+      if (_spotsConsommationAncien.isNotEmpty) {
+        debugBuf.writeln('anc minY=${_spotsConsommationAncien.map((s) => s.y).reduce((a,b)=> a < b ? a : b)} maxY=${_spotsConsommationAncien.map((s)=>s.y).reduce((a,b)=> a > b ? a : b)}');
+      }
+      if (_spotsConsommationNouveau.isNotEmpty) {
+        debugBuf.writeln('nou minY=${_spotsConsommationNouveau.map((s) => s.y).reduce((a,b)=> a < b ? a : b)} maxY=${_spotsConsommationNouveau.map((s)=>s.y).reduce((a,b)=> a > b ? a : b)}');
+      }
+      setState(() {
+        _debugInfo = debugBuf.toString();
+      });
+
+      // Calcul du ROI local (évite d'appeler à nouveau la DB depuis le service)
+      final coutAncienTotal = (donneesAncien['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
+      final coutNouveauTotal = (donneesNouveau['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
+      final economieTotale = coutAncienTotal - coutNouveauTotal;
+      final deltaInvestissement = _systemeNouveau!.coutInvestissementTotal - _systemeAncien!.coutInvestissementTotal;
+      double roiAnnee = double.infinity;
+      if (deltaInvestissement > 0 && economieTotale > 0) {
+        roiAnnee = deltaInvestissement / (economieTotale / 10);
+      } else if (deltaInvestissement <= 0 && economieTotale >= 0) {
+        roiAnnee = 0.0;
+      }
+      _roiData = {
+        'coutAncienTotal': coutAncienTotal,
+        'coutNouveauTotal': coutNouveauTotal,
+        'economieTotale': economieTotale,
+        'deltaInvestissement': deltaInvestissement,
+        'roiAnnee': roiAnnee,
+        'estRentable': economieTotale >= deltaInvestissement,
+      };
 
       setState(() => _isLoading = false);
     } catch (e) {
@@ -174,6 +358,11 @@ class _ResultatScreenState extends State<ResultatScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
+          ),
+          IconButton(
+            icon: Icon(_safeMode ? Icons.shield : Icons.show_chart),
+            tooltip: _safeMode ? 'Safe mode: charts disabled' : 'Charts enabled',
+            onPressed: () => setState(() => _safeMode = !_safeMode),
           ),
         ],
       ),
@@ -228,31 +417,39 @@ class _ResultatScreenState extends State<ResultatScreen> {
                       const SizedBox(height: 24),
 
                       // Graphique Consommation Energétique
-                      _buildGraphiqueSection(
-                        'Consommation Énergétique sur 10 ans',
-                        'kWh',
-                        _consommationsAncien,
-                        _consommationsNouveau,
-                        Colors.orange,
-                        Colors.green,
-                        false,
-                      ),
+                      _safeMode
+                          ? _buildPlaceholder('Consommation Énergétique sur 10 ans')
+                          : RepaintBoundary(
+                              child: _buildGraphiqueFromSpots(
+                                'Consommation Énergétique sur 10 ans',
+                                'kWh',
+                                _spotsConsommationAncien,
+                                _spotsConsommationNouveau,
+                                Colors.orange,
+                                Colors.green,
+                                false,
+                              ),
+                            ),
                       const SizedBox(height: 24),
 
                       // Graphique Coût Energétique
-                      _buildGraphiqueSection(
-                        'Coût Énergétique sur 10 ans',
-                        '€',
-                        _coutsAncien,
-                        _coutsNouveau,
-                        Colors.red,
-                        Colors.blue,
-                        true,
-                      ),
+                      _safeMode
+                          ? _buildPlaceholder('Coût Énergétique sur 10 ans')
+                          : RepaintBoundary(
+                              child: _buildGraphiqueFromSpots(
+                                'Coût Énergétique sur 10 ans',
+                                '€',
+                                _spotsCoutAncien,
+                                _spotsCoutNouveau,
+                                Colors.red,
+                                Colors.blue,
+                                true,
+                              ),
+                            ),
                       const SizedBox(height: 24),
 
                       // Graphique Énergie Spécifique - Comparaison Volume vs Énergie
-                      _buildGraphiqueEnergieSpecifique(),
+                      _safeMode ? _buildPlaceholder('Énergie spécifique') : _buildGraphiqueEnergieSpecifique(),
                       const SizedBox(height: 24),
 
                       // ROI et analyse
@@ -636,82 +833,43 @@ class _ResultatScreenState extends State<ResultatScreen> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 300,
-              child: ScatterChart(
-                ScatterChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: true,
-                    drawHorizontalLine: true,
-                    verticalInterval: 1,
-                    getDrawingVerticalLine: (value) => FlLine(
-                      color: Colors.grey[300]!,
-                      strokeWidth: 1,
-                    ),
-                    getDrawingHorizontalLine: (value) => FlLine(
-                      color: Colors.grey[300]!,
-                      strokeWidth: 1,
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        interval: 1,
-                        getTitlesWidget: (value, meta) {
-                          return SideTitleWidget(
-                            axisSide: meta.axisSide,
-                            child: Text('${value.toInt()} m³'),
-                          );
-                        },
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 60,
-                        interval: _energieAncien > _energieNouveau 
-                            ? _energieAncien / 5
-                            : _energieNouveau / 5,
-                        getTitlesWidget: (value, meta) {
-                          return SideTitleWidget(
-                            axisSide: meta.axisSide,
-                            child: Text('${value.toInt()} kWh'),
-                          );
-                        },
+              height: 160,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('Ancien Système', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Text('Volume: ${_formatNumber(_volumeAncien)} m³'),
+                            Text('Énergie: ${_formatNumber(_energieAncien)} kWh'),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  borderData: FlBorderData(show: false),
-                  minX: 0,
-                  maxX: _volumeAncien > _volumeNouveau ? _volumeAncien * 1.1 : _volumeNouveau * 1.1,
-                  minY: 0,
-                  maxY: _energieAncien > _energieNouveau ? _energieAncien * 1.1 : _energieNouveau * 1.1,
-                  scatterSpots: [
-                    // Point pour l'ancien système
-                    ScatterSpot(
-                      _volumeAncien,
-                      _energieAncien,
-                      color: Colors.grey,
-                      radius: 8,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('Nouveau Système', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Text('Volume: ${_formatNumber(_volumeNouveau)} m³'),
+                            Text('Énergie: ${_formatNumber(_energieNouveau)} kWh'),
+                          ],
+                        ),
+                      ),
                     ),
-                    // Point pour le nouveau système
-                    ScatterSpot(
-                      _volumeNouveau,
-                      _energieNouveau,
-                      color: Colors.blue,
-                      radius: 8,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
@@ -731,6 +889,17 @@ class _ResultatScreenState extends State<ResultatScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                      if (_debugInfo.isNotEmpty)
+                        Card(
+                          color: Colors.yellow[50],
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Text(
+                              _debugInfo,
+                              style: const TextStyle(fontSize: 12, color: Colors.black87),
+                            ),
+                          ),
+                        ),
                     const Text('Ancien Système:', style: TextStyle(fontWeight: FontWeight.bold)),
                     Text('Volume: ${_formatNumber(_volumeAncien)} m³'),
                     Text('Énergie: ${_formatNumber(_energieAncien)} kWh'),
@@ -757,4 +926,109 @@ class _ResultatScreenState extends State<ResultatScreen> {
     _calculService.close();
     super.dispose();
   }
+}
+
+class _SimpleLineChart extends StatelessWidget {
+  final List<FlSpot> ancien;
+  final List<FlSpot> nouveau;
+  final Color colorAncien;
+  final Color colorNouveau;
+  final double minX;
+  final double maxX;
+  final double minY;
+  final double maxY;
+
+  const _SimpleLineChart({
+    Key? key,
+    required this.ancien,
+    required this.nouveau,
+    required this.colorAncien,
+    required this.colorNouveau,
+    required this.minX,
+    required this.maxX,
+    required this.minY,
+    required this.maxY,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _SimpleLinePainter(
+        ancien: ancien,
+        nouveau: nouveau,
+        colorAncien: colorAncien,
+        colorNouveau: colorNouveau,
+        minX: minX,
+        maxX: maxX,
+        minY: minY,
+        maxY: maxY,
+      ),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _SimpleLinePainter extends CustomPainter {
+  final List<FlSpot> ancien;
+  final List<FlSpot> nouveau;
+  final Color colorAncien;
+  final Color colorNouveau;
+  final double minX;
+  final double maxX;
+  final double minY;
+  final double maxY;
+
+  _SimpleLinePainter({
+    required this.ancien,
+    required this.nouveau,
+    required this.colorAncien,
+    required this.colorNouveau,
+    required this.minX,
+    required this.maxX,
+    required this.minY,
+    required this.maxY,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintAnc = Paint()
+      ..color = colorAncien
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..isAntiAlias = true;
+    final paintNouv = Paint()
+      ..color = colorNouveau
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..isAntiAlias = true;
+
+    final toOffset = (FlSpot s) {
+      final dx = (s.x - minX) / (maxX - minX) * size.width;
+      final dy = size.height - (s.y - minY) / (maxY - minY) * size.height;
+      return Offset(dx.clamp(0.0, size.width), dy.clamp(0.0, size.height));
+    };
+
+    if (ancien.length >= 2) {
+      final path = Path();
+      for (var i = 0; i < ancien.length; i++) {
+        final o = toOffset(ancien[i]);
+        if (i == 0) path.moveTo(o.dx, o.dy);
+        else path.lineTo(o.dx, o.dy);
+      }
+      canvas.drawPath(path, paintAnc);
+    }
+
+    if (nouveau.length >= 2) {
+      final path2 = Path();
+      for (var i = 0; i < nouveau.length; i++) {
+        final o = toOffset(nouveau[i]);
+        if (i == 0) path2.moveTo(o.dx, o.dy);
+        else path2.lineTo(o.dx, o.dy);
+      }
+      canvas.drawPath(path2, paintNouv);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
