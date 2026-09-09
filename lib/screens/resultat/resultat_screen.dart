@@ -10,6 +10,7 @@ import 'package:wu_ect/utils/decimation.dart';
 import '../../services/database_service.dart';
 import 'package:intl/intl.dart';
 import '../../utils/error_handler.dart';
+import 'dart:ui' as ui;
 
 // Fonction wrapper pour compute() - doit être top-level
 Map<String, List<double>> _calculerDonnees10AnsWrapper(List<dynamic> args) {
@@ -112,6 +113,15 @@ class _ResultatScreenState extends State<ResultatScreen> {
       nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
     );
 
+    // For cost charts, enforce Y starts at 0 and maxY is the maximum cumulative cost between series
+    if (isCurrency) {
+      final maxAnc = ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0;
+      final maxNouv = nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0;
+      minY = 0.0;
+      maxY = math.max(maxAnc, maxNouv);
+      if (maxY <= 0) maxY = 1.0;
+    }
+
     if (maxX <= minX) maxX = minX + 1.0;
     if (maxY <= minY) {
       final delta = (minY.abs() * 0.01).clamp(1.0, double.infinity);
@@ -123,7 +133,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
     // Years for x-axis labels (use available years or numeric indices)
     final xLabels = _annees.isNotEmpty ? _annees : List.generate((maxX - minX + 1).toInt(), (i) => i);
     final int xTickCount = xLabels.length;
-    final int yTickCount = 10;
+    final int yTickCount = 10; // number of portions -> produces yTickCount+1 horizontal lines/labels
 
     return Card(
       child: Padding(
@@ -162,8 +172,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
                           Expanded(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(yTickCount, (i) {
-                                final v = minY + (maxY - minY) * ( (yTickCount - 1 - i) / (yTickCount - 1) );
+                              children: List.generate(yTickCount + 1, (i) {
+                                final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
                                 return Text(formatAxis(v), style: const TextStyle(fontSize: 12));
                               }),
                             ),
@@ -185,6 +195,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                       maxY: maxY,
                       xTickCount: xTickCount,
                       yTickCount: yTickCount,
+                      isCurrency: isCurrency,
                     ),
                   ),
                 ],
@@ -299,16 +310,27 @@ class _ResultatScreenState extends State<ResultatScreen> {
       } catch (_) {}
 
       try {
-        // Prepare adjusted costs list that includes investment in first year for nouveau
-        final coutsNouveauAdjusted = List<double>.from(_coutsNouveau);
-        if (_systemeNouveau != null && coutsNouveauAdjusted.isNotEmpty) {
-          coutsNouveauAdjusted[0] = coutsNouveauAdjusted[0] + (_systemeNouveau!.coutInvestissementTotal);
+        // Build cumulative cost series that include the initial investment once, plus cumulative yearly costs
+        final cumulativeAncien = <double>[];
+        double sumAnc = 0.0;
+        for (var i = 0; i < _coutsAncien.length; i++) {
+          sumAnc += _coutsAncien[i];
+          final investAnc = _systemeAncien?.coutInvestissementTotal ?? 0.0;
+          cumulativeAncien.add(investAnc + sumAnc);
+        }
+
+        final cumulativeNouveau = <double>[];
+        double sumNouv = 0.0;
+        for (var i = 0; i < _coutsNouveau.length; i++) {
+          sumNouv += _coutsNouveau[i];
+          final investNouv = _systemeNouveau?.coutInvestissementTotal ?? 0.0;
+          cumulativeNouveau.add(investNouv + sumNouv);
         }
 
         final spotsAncien = await compute(computeDownsampleSerialized, {'values': _consommationsAncien, 'maxPoints': 500});
         final spotsNouveau = await compute(computeDownsampleSerialized, {'values': _consommationsNouveau, 'maxPoints': 500});
-        final spotsCoutAncien = await compute(computeDownsampleSerialized, {'values': _coutsAncien, 'maxPoints': 500});
-        final spotsCoutNouveau = await compute(computeDownsampleSerialized, {'values': coutsNouveauAdjusted, 'maxPoints': 500});
+        final spotsCoutAncien = await compute(computeDownsampleSerialized, {'values': cumulativeAncien, 'maxPoints': 500});
+        final spotsCoutNouveau = await compute(computeDownsampleSerialized, {'values': cumulativeNouveau, 'maxPoints': 500});
 
         _spotsConsommationAncien = spotsAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
         _spotsConsommationNouveau = spotsNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
@@ -317,10 +339,23 @@ class _ResultatScreenState extends State<ResultatScreen> {
       } catch (_) {
         _spotsConsommationAncien = List.generate(_consommationsAncien.length, (i) => FlSpot(i.toDouble(), _consommationsAncien[i]));
         _spotsConsommationNouveau = List.generate(_consommationsNouveau.length, (i) => FlSpot(i.toDouble(), _consommationsNouveau[i]));
-        _spotsCoutAncien = List.generate(_coutsAncien.length, (i) => FlSpot(i.toDouble(), _coutsAncien[i]));
-        final coutsNouveauAdjusted = List<double>.from(_coutsNouveau);
-        if (_systemeNouveau != null && coutsNouveauAdjusted.isNotEmpty) coutsNouveauAdjusted[0] = coutsNouveauAdjusted[0] + (_systemeNouveau!.coutInvestissementTotal);
-        _spotsCoutNouveau = List.generate(coutsNouveauAdjusted.length, (i) => FlSpot(i.toDouble(), coutsNouveauAdjusted[i]));
+
+        final cumulativeAncien = <double>[];
+        double sumAnc = 0.0;
+        for (var i = 0; i < _coutsAncien.length; i++) {
+          sumAnc += _coutsAncien[i];
+          cumulativeAncien.add((_systemeAncien?.coutInvestissementTotal ?? 0.0) + sumAnc);
+        }
+
+        final cumulativeNouveau = <double>[];
+        double sumNouv = 0.0;
+        for (var i = 0; i < _coutsNouveau.length; i++) {
+          sumNouv += _coutsNouveau[i];
+          cumulativeNouveau.add((_systemeNouveau?.coutInvestissementTotal ?? 0.0) + sumNouv);
+        }
+
+        _spotsCoutAncien = List.generate(cumulativeAncien.length, (i) => FlSpot(i.toDouble(), cumulativeAncien[i]));
+        _spotsCoutNouveau = List.generate(cumulativeNouveau.length, (i) => FlSpot(i.toDouble(), cumulativeNouveau[i]));
       }
 
       final debugBuf = StringBuffer();
@@ -551,7 +586,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
   }
 }
 
-class _SimpleLineChart extends StatelessWidget {
+class _SimpleLineChart extends StatefulWidget {
   final List<FlSpot> ancien;
   final List<FlSpot> nouveau;
   final Color colorAncien;
@@ -562,15 +597,56 @@ class _SimpleLineChart extends StatelessWidget {
   final double maxY;
   final int xTickCount;
   final int yTickCount;
+  final bool isCurrency;
 
-  const _SimpleLineChart({Key? key, required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount}) : super(key: key);
+  const _SimpleLineChart({Key? key, required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, required this.isCurrency}) : super(key: key);
+
+  @override
+  State<_SimpleLineChart> createState() => _SimpleLineChartState();
+}
+
+class _SimpleLineChartState extends State<_SimpleLineChart> {
+  double? _hoverFraction; // 0..1 over width
+
+  void _updateHover(Offset localPosition, double width) {
+    final frac = (localPosition.dx / width).clamp(0.0, 1.0);
+    setState(() => _hoverFraction = frac);
+  }
+
+  void _clearHover() => setState(() => _hoverFraction = null);
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _SimpleLinePainter(ancien: ancien, nouveau: nouveau, colorAncien: colorAncien, colorNouveau: colorNouveau, minX: minX, maxX: maxX, minY: minY, maxY: maxY, xTickCount: xTickCount, yTickCount: yTickCount),
-      size: Size.infinite,
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final w = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanDown: (e) => _updateHover(e.localPosition, w),
+        onPanUpdate: (e) => _updateHover(e.localPosition, w),
+        onPanEnd: (_) => _clearHover(),
+        child: MouseRegion(
+          onHover: (e) => _updateHover(e.localPosition, w),
+          onExit: (_) => _clearHover(),
+          child: CustomPaint(
+            painter: _SimpleLinePainter(
+              ancien: widget.ancien,
+              nouveau: widget.nouveau,
+              colorAncien: widget.colorAncien,
+              colorNouveau: widget.colorNouveau,
+              minX: widget.minX,
+              maxX: widget.maxX,
+              minY: widget.minY,
+              maxY: widget.maxY,
+              xTickCount: widget.xTickCount,
+              yTickCount: widget.yTickCount,
+              hoverFraction: _hoverFraction,
+              isCurrency: widget.isCurrency,
+            ),
+            size: Size.infinite,
+          ),
+        ),
+      );
+    });
   }
 }
 
@@ -585,7 +661,10 @@ class _SimpleLinePainter extends CustomPainter {
   final double maxY;
   final int xTickCount;
   final int yTickCount;
-  _SimpleLinePainter({required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount});
+  final double? hoverFraction; // 0..1 or null
+  final bool isCurrency;
+
+  _SimpleLinePainter({required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, this.hoverFraction, required this.isCurrency});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -599,9 +678,69 @@ class _SimpleLinePainter extends CustomPainter {
       return Offset(dx.clamp(0.0, size.width), dy.clamp(0.0, size.height));
     }
 
+    // Draw hover cursor if available
+    if (hoverFraction != null) {
+      final hoverX = minX + (maxX - minX) * hoverFraction!;
+      final dx = (hoverFraction! * size.width).clamp(0.0, size.width);
+      final paintCursor = Paint()..color = Colors.black.withOpacity(0.6)..strokeWidth = 1.0;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paintCursor);
+
+      // Draw markers at nearest points on each series
+      FlSpot? nearestAnc;
+      FlSpot? nearestNouv;
+      double bestAnc = double.infinity;
+      double bestNouv = double.infinity;
+      for (var s in ancien) {
+        final d = (s.x - hoverX).abs();
+        if (d < bestAnc) {
+          bestAnc = d;
+          nearestAnc = s;
+        }
+      }
+      for (var s in nouveau) {
+        final d = (s.x - hoverX).abs();
+        if (d < bestNouv) {
+          bestNouv = d;
+          nearestNouv = s;
+        }
+      }
+      if (nearestAnc != null) {
+        final o = toOffset(nearestAnc);
+        final p = Paint()..color = colorAncien..style = PaintingStyle.fill;
+        canvas.drawCircle(o, 4.0, p);
+        // horizontal line
+        final paintH = Paint()..color = colorAncien.withOpacity(0.2)..strokeWidth = 1.0;
+        canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
+        // tooltip
+        final fmt = isCurrency ? NumberFormat.currency(symbol: '€ ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final text = fmt.format(nearestAnc.y);
+        final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
+        tp.layout();
+        final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
+        final back = Paint()..color = colorAncien.withOpacity(0.9);
+        canvas.drawRRect(rect, back);
+        tp.paint(canvas, Offset(rect.left + 4, rect.top + 2));
+      }
+      if (nearestNouv != null) {
+        final o = toOffset(nearestNouv);
+        final p = Paint()..color = colorNouveau..style = PaintingStyle.fill;
+        canvas.drawCircle(o, 4.0, p);
+        final paintH = Paint()..color = colorNouveau.withOpacity(0.2)..strokeWidth = 1.0;
+        canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
+        final fmt = isCurrency ? NumberFormat.currency(symbol: '€ ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final text = fmt.format(nearestNouv.y);
+        final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
+        tp.layout();
+        final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
+        final back = Paint()..color = colorNouveau.withOpacity(0.9);
+        canvas.drawRRect(rect, back);
+        tp.paint(canvas, Offset(rect.left + 4, rect.top + 2));
+      }
+    }
+
     // Draw grid lines based on tick counts
     final int vCount = xTickCount > 1 ? xTickCount : 5;
-    final int hCount = yTickCount > 1 ? yTickCount : 5;
+    final int hCount = yTickCount > 0 ? (yTickCount + 1) : 5; // yTickCount portions -> yTickCount+1 lines
     for (var i = 0; i < vCount; i++) {
       final dx = (i / (vCount - 1)) * size.width;
       canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paintGrid);
