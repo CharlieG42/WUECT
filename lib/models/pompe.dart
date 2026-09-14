@@ -41,7 +41,7 @@ class Pompe {
   final double coutInvestissement; // €
   
   @HiveField(12)
-  final double p1Estimee; // kW - Puissance estimée par l'utilisateur
+  final double p1Estimee; // kW - Puissance Corrigée par l'utilisateur
 
   Pompe({
     this.id,

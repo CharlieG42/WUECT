@@ -160,11 +160,11 @@ class _ResultatScreenState extends State<ResultatScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Y axis labels (min/max)
+                  // Y axis labels (min/max) - aligned to the right for better readability
                   SizedBox(
                       width: 80,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           // Unit label on Y axis
                           Text(unite, style: const TextStyle(fontSize: 12, color: Colors.grey)),
@@ -174,7 +174,9 @@ class _ResultatScreenState extends State<ResultatScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: List.generate(yTickCount + 1, (i) {
                                 final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
-                                return Text(formatAxis(v), style: const TextStyle(fontSize: 12));
+                                return Text(formatAxis(v), 
+                                    style: const TextStyle(fontSize: 12),
+                                    textAlign: TextAlign.right);
                               }),
                             ),
                           ),
@@ -203,29 +205,28 @@ class _ResultatScreenState extends State<ResultatScreen> {
             ),
 
             const SizedBox(height: 8),
-            // X axis labels: first, middle, last (or use years if available)
-            // X axis: show every year evenly spaced
+            // X axis labels: show every year evenly spaced with precise alignment
+            // Each label is positioned exactly under its corresponding vertical grid line
             Row(
               children: [
                 const SizedBox(width: 80), // align with Y labels column
                 Expanded(
-                  child: LayoutBuilder(builder: (context, constraints) {
-                    return Stack(
-                      children: xLabels.asMap().entries.map((entry) {
-                        final i = entry.key;
-                        final lbl = entry.value;
-                        final frac = xTickCount > 1 ? (i / (xTickCount - 1)) : 0.0;
-                        final alignX = -1.0 + 2.0 * frac; // convert [0..1] -> [-1..1] for Alignment
-                        return Align(
-                          alignment: Alignment(alignX, 0.0),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                            child: Text('$lbl', style: const TextStyle(fontSize: 11)),
-                          ),
-                        );
-                      }).toList(),
-                    );
-                  }),
+                  child: xTickCount <= 1
+                      ? Center(child: Text('${xLabels.first}', style: const TextStyle(fontSize: 11)))
+                      : Row(
+                          children: List.generate(xTickCount, (i) {
+                            final lbl = xLabels.length > i ? xLabels[i] : (minX + (maxX - minX) * (i / (xTickCount - 1))).toInt();
+                            return Expanded(
+                              child: Center(
+                                child: Text('$lbl', 
+                                    style: const TextStyle(fontSize: 11),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            );
+                          }),
+                        ),
                 ),
               ],
             ),
@@ -282,14 +283,29 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _pompesAncien = await pompesAncienFuture;
       _pompesNouveau = await pompesNouveauFuture;
 
+      // ========================================================================
+      // CALCUL 1: Volume Total et Énergie Totale
+      // ========================================================================
+      // Volume = Σ(Débit × Heures de fonctionnement × 10 ans)
+      // Énergie = Σ(Énergie Spécifique × Débit × Heures de fonctionnement × 10 ans)
+      // Ces valeurs sont utilisées pour l'affichage comparatif des systèmes
       _volumeAncien = _calculerVolumeTotal(_pompesAncien);
       _volumeNouveau = _calculerVolumeTotal(_pompesNouveau);
       _energieAncien = _calculerEnergieTotale(_pompesAncien);
       _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
 
+      // Générer les 10 prochaines années à partir de l'année en cours
       final anneeEnCours = DateTime.now().year;
       _annees = List.generate(10, (i) => anneeEnCours + i);
 
+      // ========================================================================
+      // CALCUL 2: Données sur 10 ans (Consommations et Coûts)
+      // ========================================================================
+      // Calcul des consommations et coûts énergétiques annuels pour chaque système
+      // sur une période de 10 ans, en tenant compte de :
+      // - L'augmentation annuelle du coût de l'énergie
+      // - La perte de rendement annuelle des équipements
+      // Retourne un Map avec 'consommations' et 'coutsEnergetiques'
       final donneesAncienFuture = compute(_calculerDonnees10AnsWrapper, [_pompesAncien, projet]);
       final donneesNouveauFuture = compute(_calculerDonnees10AnsWrapper, [_pompesNouveau, projet]);
       final results = await Future.wait<Map<String, List<double>>>([donneesAncienFuture, donneesNouveauFuture]);
@@ -302,6 +318,11 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _coutsAncien = donneesAncien['coutsEnergetiques']!;
       _coutsNouveau = donneesNouveau['coutsEnergetiques']!;
 
+      // ========================================================================
+      // CALCUL 3: Intégration de l'investissement initial
+      // ========================================================================
+      // Le coût d'investissement du système nouveau est ajouté à la première année
+      // pour refléter le coût total initial (investissement + première année d'exploitation)
       // Intégrer le montant d'investissement dans la première année du coût (pour le système nouveau)
       try {
         if (_systemeNouveau != null && _coutsNouveau.isNotEmpty) {
@@ -310,7 +331,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
       } catch (_) {}
 
       try {
-        // Build cumulative cost series that include the initial investment once, plus cumulative yearly costs
+        // ========================================================================
+        // CALCUL 4: Coûts cumulatifs pour les graphiques
+        // ========================================================================
+        // Construction des séries de coûts cumulatifs qui incluent :
+        // - L'investissement initial (une seule fois en année 0)
+        // - Les coûts énergétiques annuels cumulés
+        // Cela permet d'afficher l'évolution du coût total sur 10 ans
         final cumulativeAncien = <double>[];
         double sumAnc = 0.0;
         for (var i = 0; i < _coutsAncien.length; i++) {
@@ -327,11 +354,18 @@ class _ResultatScreenState extends State<ResultatScreen> {
           cumulativeNouveau.add(investNouv + sumNouv);
         }
 
+        // ========================================================================
+        // CALCUL 5: Préparation des points pour les graphiques (Downsampling)
+        // ========================================================================
+        // Réduction du nombre de points pour optimiser l'affichage des graphiques
+        // tout en conservant la forme des courbes (algorithme LTTB - Largest Triangle Three Buckets)
+        // Limite à 500 points maximum par série pour éviter les problèmes de performance
         final spotsAncien = await compute(computeDownsampleSerialized, {'values': _consommationsAncien, 'maxPoints': 500});
         final spotsNouveau = await compute(computeDownsampleSerialized, {'values': _consommationsNouveau, 'maxPoints': 500});
         final spotsCoutAncien = await compute(computeDownsampleSerialized, {'values': cumulativeAncien, 'maxPoints': 500});
         final spotsCoutNouveau = await compute(computeDownsampleSerialized, {'values': cumulativeNouveau, 'maxPoints': 500});
 
+        // Conversion des points downsamplés en FlSpot pour fl_chart
         _spotsConsommationAncien = spotsAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
         _spotsConsommationNouveau = spotsNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
         _spotsCoutAncien = spotsCoutAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
@@ -366,18 +400,31 @@ class _ResultatScreenState extends State<ResultatScreen> {
       debugBuf.writeln('coutsNouveau=${_coutsNouveau.length} spotsCoutNouveau=${_spotsCoutNouveau.length}');
       setState(() => _debugInfo = debugBuf.toString());
 
+      // ========================================================================
+      // CALCUL 6: Analyse de Rentabilité (ROI - Return On Investment)
+      // ========================================================================
+      // Calcul du temps de retour sur investissement pour comparer les deux systèmes
       final coutAncienTotal = (donneesAncien['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
       final coutNouveauTotal = (donneesNouveau['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
+      
+      // Économies totales sur 10 ans (sans compter l'investissement)
       final economieTotale = coutAncienTotal - coutNouveauTotal;
+      
+      // Différence d'investissement entre les deux systèmes
       final deltaInvestissement = _systemeNouveau!.coutInvestissementTotal - _systemeAncien!.coutInvestissementTotal;
 
+      // Calcul du ROI en années
+      // Formule: ROI = Delta Investissement / (Économie annuelle moyenne)
+      // où Économie annuelle moyenne = économieTotale / 10
       double roiAnnee = double.infinity;
       if (deltaInvestissement > 0 && economieTotale > 0) {
         roiAnnee = deltaInvestissement / (economieTotale / 10);
       } else if (deltaInvestissement <= 0 && economieTotale >= 0) {
+        // Si pas de delta ou économie immédiate, ROI = 0
         roiAnnee = 0.0;
       }
 
+      // Stockage des données ROI pour l'affichage
       _roiData = {
         'coutAncienTotal': coutAncienTotal,
         'coutNouveauTotal': coutNouveauTotal,
@@ -396,11 +443,19 @@ class _ResultatScreenState extends State<ResultatScreen> {
     }
   }
 
+  // ============================================================================
+  // FORMATTING UTILITY METHODS
+  // ============================================================================
+
+  /// Format a number with French locale formatting (2 decimal places, comma separator)
+  /// Ex: 1234.567 -> "1 234,57"
   String _formatNumber(double value) {
     final format = NumberFormat("#,##0.00", "fr_FR");
     return format.format(value);
   }
 
+  /// Format a currency value with French locale (€ symbol, 2 decimal places)
+  /// Ex: 1234.567 -> "1 234,57 €"
   String _formatCurrency(double value) {
     final format = NumberFormat.currency(
       symbol: '€ ',
@@ -410,12 +465,104 @@ class _ResultatScreenState extends State<ResultatScreen> {
     return format.format(value);
   }
 
+  // ============================================================================
+  // CALCULATION UTILITY METHODS
+  // ============================================================================
+
+  /// Calculate the total volume for a list of pumps over 10 years
+  /// Formula: Σ(debit × hours × 10) for all pumps
+  /// Result in m³ (cubic meters)
   double _calculerVolumeTotal(List<Pompe> pompes) {
     return pompes.fold(0.0, (sum, pompe) => sum + pompe.debit * pompe.heuresFonctionnement * 10);
   }
 
+  /// Calculate the total energy consumption for a list of pumps over 10 years
+  /// Formula: Σ(es × debit × hours × 10) for all pumps
+  /// where es = énergie spécifique (specific energy) in kW/m³/h
+  /// Result in kWh (kilowatt-hours)
   double _calculerEnergieTotale(List<Pompe> pompes) {
     return pompes.fold(0.0, (sum, pompe) => sum + pompe.energieSpecifique * pompe.debit * pompe.heuresFonctionnement * 10);
+  }
+
+  // ============================================================================
+  // CALCULATION DETAILS DIALOG
+  // ============================================================================
+  // Shows a detailed breakdown of how the calculations are performed
+  void _showCalculationDetailsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Détail des Calculs'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // General info
+              const Text('Les calculs sont effectués pour chaque année sur 10 ans.', 
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              
+              // Consumption calculation
+              const Text('1. Calcul de la Consommation (kWh) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+              const SizedBox(height: 4),
+              const Text('Formule: P1 × Heures de fonctionnement'),
+              const Text('où P1 = Puissance utile de la pompe en kW'),
+              const Text('Les rendements pompe et moteur sont pris en compte dans P1.'),
+              const SizedBox(height: 8),
+              
+              // Cost calculation
+              const Text('2. Calcul du Coût Énergétique (€) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+              const SizedBox(height: 4),
+              const Text('Formule: Consommation × Coût de l\'énergie (€/kWh)'),
+              const Text('Le coût de l\'énergie provient du projet et peut augmenter chaque année.'),
+              const SizedBox(height: 8),
+              
+              // Savings calculation
+              const Text('3. Calcul des Économies :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 4),
+              const Text('Économie kWh = Consommation Ancien - Consommation Nouveau'),
+              const Text('Économie € = Coût Ancien - Coût Nouveau'),
+              const SizedBox(height: 8),
+              
+              // ROI calculation
+              const Text('4. Calcul du ROI (Retour sur Investissement) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+              const SizedBox(height: 4),
+              const Text('Économie totale sur 10 ans = Somme des économies annuelles'),
+              const Text('Delta Investissement = Coût Nouveau - Coût Ancien'),
+              const Text('ROI (années) = Delta Investissement / (Économie annuelle moyenne)'),
+              const SizedBox(height: 8),
+              
+              // Volume calculation
+              const Text('5. Calcul du Volume Total :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+              const SizedBox(height: 4),
+              const Text('Formule: Σ(Débit × Heures de fonctionnement × 10)'),
+              const Text('Le facteur 10 convertit en m³ (débit en m³/h × heures × 10 ans)'),
+              const SizedBox(height: 8),
+              
+              // Note about corrected power
+              const Text('Note sur la Puissance Corrigée :', 
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text('Si une valeur de P1 Corrigée est saisie, elle est utilisée'),
+              const Text('au lieu de la P1 Calculée pour tous les calculs.'),
+              const Text('Cela permet d\'ajuster manuellement la puissance si nécessaire.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -508,7 +655,19 @@ class _ResultatScreenState extends State<ResultatScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Données Détaillées par Année', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Données Détaillées par Année', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.info_outline, size: 20),
+                tooltip: 'Détail des calculs',
+                onPressed: _showCalculationDetailsDialog,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
           const Divider(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,

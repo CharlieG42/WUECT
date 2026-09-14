@@ -104,7 +104,7 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
     return puissanceUtilisee / debit;
   }
 
-  // Vérifier si P1 Estimée est différente de P1 Calculée
+  // Vérifier si P1 Corrigée est différente de P1 Calculée
   bool _p1EstimeeDiffere() {
     final p1Calculee = _calculerP1();
     final p1Estimee = double.tryParse(_p1EstimeeController.text) ?? 0.0;
@@ -329,7 +329,7 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // P1 Calculée et Estimée
+                    // P1 Calculée et Corrigée
                     const Text(
                       'Puissance P1',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -350,11 +350,11 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // P1 Estimée (modifiable)
+                    // P1 Corrigée (modifiable)
                     TextFormField(
                       controller: _p1EstimeeController,
                       decoration: InputDecoration(
-                        labelText: 'P1 Estimée',
+                        labelText: 'P1 Corrigée',
                         suffixText: 'kW',
                         border: const OutlineInputBorder(),
                         helperText: utiliseP1Estimee 

@@ -596,7 +596,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
               Text('HMT: ${pompe.hmt} mce'),
               Text('P1 Calculée: ${pompe.p1Calculee.toStringAsFixed(2)} kW'),
               if (pompe.p1Estimee > 0 && pompe.p1Estimee != pompe.p1Calculee)
-                Text('P1 Estimée: ${pompe.p1Estimee.toStringAsFixed(2)} kW'),
+                Text('P1 Corrigée: ${pompe.p1Estimee.toStringAsFixed(2)} kW'),
               Text('Es: ${pompe.energieSpecifique.toStringAsFixed(4)} kW/m³/h'),
               Text('Heures: ${pompe.heuresFonctionnement} h/an'),
               Text('Coût: ${pompe.coutInvestissement} €'),
