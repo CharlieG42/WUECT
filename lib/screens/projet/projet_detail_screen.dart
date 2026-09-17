@@ -277,6 +277,10 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                               ),
                             ).then((value) {
                               debugPrint('[DEBUG] Retour de ResultatScreen - value: $value');
+                              // Recharger les données au retour pour s'assurer que tout est à jour
+                              if (mounted) {
+                                _loadData();
+                              }
                             });
                           },
                           style: ElevatedButton.styleFrom(

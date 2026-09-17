@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'projet/projet_list_screen.dart';
 import 'debug/debug_database_screen.dart';
+import '../services/settings_service.dart';
+import '../widgets/settings_dialog.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final SettingsService _settings = SettingsService.instance;
 
   @override
   Widget build(BuildContext context) {
@@ -11,6 +20,14 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('WU ECT'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Paramètres',
+            onPressed: () => SettingsDialog.show(context, 
+              title: 'Paramètres Globaux',
+              onSaved: () => setState(() {}),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.storage),
             tooltip: 'Debug BDD',

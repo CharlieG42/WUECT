@@ -11,6 +11,7 @@ import 'models/projet.dart';
 import 'models/systeme.dart';
 import 'models/pompe.dart';
 import 'services/database_service.dart';
+import 'services/settings_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,9 @@ Future<void> main() async {
 
   // Initialiser les boxes de la base de données
   await DatabaseService.init();
+  
+  // Initialiser les paramètres globaux
+  await SettingsService.init();
 
   // Global error handlers to capture uncaught errors and stack traces
   FlutterError.onError = (FlutterErrorDetails details) {
