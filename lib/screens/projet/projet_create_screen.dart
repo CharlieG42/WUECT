@@ -187,7 +187,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
                     TextFormField(
                       controller: _coutEnergieController,
                       decoration: const InputDecoration(
-                        labelText: 'Coût de l\'énergie (€/kWh)',
+                        labelText: 'Coût de l\'énergie (EUR/kWh)',
                         prefixIcon: Icon(Icons.electrical_services),
                         border: OutlineInputBorder(),
                       ),

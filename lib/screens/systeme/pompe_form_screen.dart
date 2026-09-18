@@ -500,7 +500,7 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Coût d\'investissement',
                         prefixIcon: Icon(Icons.monetization_on),
-                        suffixText: '€',
+                        suffixText: 'EUR',
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.number,

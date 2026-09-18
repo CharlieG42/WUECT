@@ -294,10 +294,10 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
                     TextFormField(
                       controller: _coutInvestissementController,
                       decoration: InputDecoration(
-                        labelText: 'Coût d\'investissement Total (€)',
+                        labelText: 'Coût d\'investissement Total (EUR)',
                         prefixIcon: const Icon(Icons.monetization_on),
                         border: const OutlineInputBorder(),
-                        suffixText: '€',
+                        suffixText: 'EUR',
                         filled: true,
                         fillColor: Colors.grey[100],
                         helperText: _pompes.isNotEmpty
@@ -387,7 +387,7 @@ class _SystemeFormScreenState extends State<SystemeFormScreen> {
                                   if (pompe.p1Estimee > 0 && pompe.p1Estimee != pompe.p1Calculee)
                                     Text('P1 Corrigée: ${pompe.p1Estimee.toStringAsFixed(2)} kW'),
                                   Text('Es: ${pompe.energieSpecifique.toStringAsFixed(4)} kW/m3/h'),
-                                  Text('Coût: ${pompe.coutInvestissement} €'),
+                                  Text('Coût: ${pompe.coutInvestissement} EUR'),
                                 ],
                               ),
                               trailing: Row(

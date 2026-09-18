@@ -103,7 +103,7 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
                               Text('Client: ${contact.client}'),
                               Text('Contact: ${contact.nom}'),
                             ],
-                            Text('Coût énergie: ${projet.coutEnergie} €/kWh'),
+                            Text('Coût énergie: ${projet.coutEnergie} EUR/kWh'),
                           ],
                         ),
                         trailing: Row(

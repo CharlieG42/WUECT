@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:ui' as ui;
 import '../../models/projet.dart';
+import '../../models/contact.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/calcul_service.dart';
@@ -12,7 +14,9 @@ import '../../services/settings_service.dart';
 import '../../widgets/settings_dialog.dart';
 import 'package:intl/intl.dart';
 import '../../utils/error_handler.dart';
-import 'dart:ui' as ui;
+import '../../utils/exportPDF.dart';
+import '../contact/contact_form_screen.dart';
+
 
 // Fonction wrapper pour compute() - doit être top-level
 Map<String, List<double>> _calculerDonnees10AnsWrapper(List<dynamic> args) {
@@ -34,7 +38,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
   final DatabaseService _db = DatabaseService.instance;
   final SettingsService _settings = SettingsService.instance;
 
+  // Clés pour capturer les graphiques en image
+  final GlobalKey _consoGraphKey = GlobalKey();
+  final GlobalKey _coutGraphKey = GlobalKey();
+
   Projet? _projet;
+  Contact? _contact;
+  List<Contact> _contacts = [];
+  int? _selectedContactId;
   Systeme? _systemeAncien;
   Systeme? _systemeNouveau;
   List<double> _consommationsAncien = [];
@@ -69,6 +80,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
   bool _isLoading = true;
   bool _safeMode = false;
+
 
   @override
   void initState() {
@@ -106,8 +118,9 @@ class _ResultatScreenState extends State<ResultatScreen> {
     List<FlSpot> nouveau,
     Color colorAncien,
     Color colorNouveau,
-    bool isCurrency,
-  ) {
+    bool isCurrency, {
+    bool forceMinYToZero = false,
+  }) {
     if (ancien.isEmpty && nouveau.isEmpty) {
       return _buildPlaceholder(title);
     }
@@ -133,6 +146,11 @@ class _ResultatScreenState extends State<ResultatScreen> {
       minY = 0.0;
       maxY = math.max(maxAnc, maxNouv);
       if (maxY <= 0) maxY = 1.0;
+    }
+    
+    // Force Y axis origin to 0 for consumption charts
+    if (forceMinYToZero) {
+      minY = 0.0;
     }
 
     if (maxX <= minX) maxX = minX + 1.0;
@@ -176,24 +194,27 @@ class _ResultatScreenState extends State<ResultatScreen> {
                   // Y axis labels (min/max) - aligned to the right for better readability
                   SizedBox(
                       width: 80,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          // Unit label on Y axis
-                          Text(unite, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(yTickCount + 1, (i) {
-                                final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
-                                return Text(formatAxis(v), 
-                                    style: const TextStyle(fontSize: 12),
-                                    textAlign: TextAlign.right);
-                              }),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            // Unit label on Y axis
+                            Text(unite, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: List.generate(yTickCount + 1, (i) {
+                                  final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
+                                  return Text(formatAxis(v), 
+                                      style: const TextStyle(fontSize: 12),
+                                      textAlign: TextAlign.right);
+                                }),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
 
@@ -277,6 +298,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
       }
 
       _projet = projet;
+      
+      // Charger le contact et tous les contacts pour le sélecteur
+      _contact = await _db.getContactById(projet.contactId);
+      _contacts = await _db.getAllContacts();
+      _selectedContactId = _contact?.id;
+      
       final ancienSystems = systemes.where((s) => s.nom.toLowerCase().contains('ancien')).toList();
       final nouveauSystems = systemes.where((s) => s.nom.toLowerCase().contains('nouveau')).toList();
       _systemeAncien = ancienSystems.isNotEmpty ? ancienSystems.first : null;
@@ -389,9 +416,26 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
       try {
         // ========================================================================
-        // CALCUL 4: Coûts cumulatifs pour les graphiques
+        // CALCUL 4: Consommations et Coûts cumulatifs pour les graphiques
         // ========================================================================
-        // Construction des séries de coûts cumulatifs qui incluent :
+        // Construction des séries cumulatives
+        
+        // Consommations cumulées (sans investissement, juste la consommation énergétique)
+        final consommationsAncienCumulees = <double>[];
+        double sumConsAnc = 0.0;
+        for (var i = 0; i < _consommationsAncien.length; i++) {
+          sumConsAnc += _consommationsAncien[i];
+          consommationsAncienCumulees.add(sumConsAnc);
+        }
+
+        final consommationsNouveauCumulees = <double>[];
+        double sumConsNouv = 0.0;
+        for (var i = 0; i < _consommationsNouveau.length; i++) {
+          sumConsNouv += _consommationsNouveau[i];
+          consommationsNouveauCumulees.add(sumConsNouv);
+        }
+        
+        // Coûts cumulatifs qui incluent :
         // - L'investissement initial (une seule fois en année 0)
         // - Les coûts énergétiques annuels cumulés
         // Cela permet d'afficher l'évolution du coût total sur 10 ans
@@ -417,8 +461,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
         // Réduction du nombre de points pour optimiser l'affichage des graphiques
         // tout en conservant la forme des courbes (algorithme LTTB - Largest Triangle Three Buckets)
         // Limite à 500 points maximum par série pour éviter les problèmes de performance
-        final spotsAncien = await compute(computeDownsampleSerialized, {'values': _consommationsAncien, 'maxPoints': 500});
-        final spotsNouveau = await compute(computeDownsampleSerialized, {'values': _consommationsNouveau, 'maxPoints': 500});
+        final spotsAncien = await compute(computeDownsampleSerialized, {'values': consommationsAncienCumulees, 'maxPoints': 500});
+        final spotsNouveau = await compute(computeDownsampleSerialized, {'values': consommationsNouveauCumulees, 'maxPoints': 500});
         final spotsCoutAncien = await compute(computeDownsampleSerialized, {'values': cumulativeAncien, 'maxPoints': 500});
         final spotsCoutNouveau = await compute(computeDownsampleSerialized, {'values': cumulativeNouveau, 'maxPoints': 500});
 
@@ -428,8 +472,23 @@ class _ResultatScreenState extends State<ResultatScreen> {
         _spotsCoutAncien = spotsCoutAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
         _spotsCoutNouveau = spotsCoutNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
       } catch (_) {
-        _spotsConsommationAncien = List.generate(_consommationsAncien.length, (i) => FlSpot(i.toDouble(), _consommationsAncien[i]));
-        _spotsConsommationNouveau = List.generate(_consommationsNouveau.length, (i) => FlSpot(i.toDouble(), _consommationsNouveau[i]));
+        // Consommations cumulées pour le cas sans downsampling
+        final consommationsAncienCumulees = <double>[];
+        double sumConsAnc = 0.0;
+        for (var i = 0; i < _consommationsAncien.length; i++) {
+          sumConsAnc += _consommationsAncien[i];
+          consommationsAncienCumulees.add(sumConsAnc);
+        }
+
+        final consommationsNouveauCumulees = <double>[];
+        double sumConsNouv = 0.0;
+        for (var i = 0; i < _consommationsNouveau.length; i++) {
+          sumConsNouv += _consommationsNouveau[i];
+          consommationsNouveauCumulees.add(sumConsNouv);
+        }
+        
+        _spotsConsommationAncien = List.generate(consommationsAncienCumulees.length, (i) => FlSpot(i.toDouble(), consommationsAncienCumulees[i]));
+        _spotsConsommationNouveau = List.generate(consommationsNouveauCumulees.length, (i) => FlSpot(i.toDouble(), consommationsNouveauCumulees[i]));
 
         final cumulativeAncien = <double>[];
         double sumAnc = 0.0;
@@ -499,6 +558,41 @@ class _ResultatScreenState extends State<ResultatScreen> {
     }
   }
 
+  Future<void> _updateProjetContact(int? newContactId) async {
+    if (_projet == null || newContactId == null) return;
+    
+    try {
+      final updatedProjet = _projet!.copyWith(contactId: newContactId);
+      await _db.updateProjet(updatedProjet);
+      
+      if (mounted) {
+        setState(() {
+          _selectedContactId = newContactId;
+          // Recharger le contact
+          _contact = _contacts.firstWhere((c) => c.id == newContactId);
+        });
+        ErrorHandler.showSnackBar(context, 'Contact du projet mis à jour');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'Erreur de mise à jour: $e', error: true);
+      }
+    }
+  }
+
+  Future<void> _navigateToContactForm(int? contactId) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ContactFormScreen(contactId: contactId),
+      ),
+    );
+    
+    if (result == true && mounted) {
+      _loadData();
+    }
+  }
+
   // ============================================================================
   // FORMATTING UTILITY METHODS
   // ============================================================================
@@ -521,14 +615,119 @@ class _ResultatScreenState extends State<ResultatScreen> {
   }
 
   /// Format a currency value with French locale (€ symbol, 2 decimal places)
-  /// Ex: 1234.567 -> "1 234,57 €"
+  /// Ex: 1234.567 -> "1 234,57 EUR"
+  /// Note: Utilisation de EUR au lieu de € pour eviter les problemes de font sur certaines plateformes
   String _formatCurrency(double value) {
     final format = NumberFormat.currency(
-      symbol: '€ ',
+      symbol: 'EUR ',
       decimalDigits: 2,
       locale: 'fr_FR',
     );
     return format.format(value);
+  }
+
+  /// Determines the appropriate scale factor and unit suffix for consumption values
+  /// Returns a tuple of (scaleFactor, unitSuffix)
+  /// Multiplicateur max : 1000
+  /// For example: if maxValue is 500000, returns (1000, '*1000 kWh')
+  /// if maxValue is 500, returns (1, 'kWh')
+  Map<String, dynamic> _getConsommationScale(double maxValue) {
+    if (maxValue >= 1000) {
+      return {'factor': 1000.toDouble(), 'unit': '*1000 kWh'};
+    } else if (maxValue >= 100) {
+      return {'factor': 100.toDouble(), 'unit': '*100 kWh'};
+    } else if (maxValue >= 10) {
+      return {'factor': 10.toDouble(), 'unit': '*10 kWh'};
+    } else {
+      return {'factor': 1.toDouble(), 'unit': 'kWh'};
+    }
+  }
+
+  /// Determines the appropriate scale factor and unit suffix for cost values
+  /// Returns a tuple of (scaleFactor, unitSuffix)
+  /// For example: if maxValue is 5000000, returns (1000000, '*1M EUR')
+  /// if maxValue is 500000, returns (1000, '*1000 EUR')
+  /// if maxValue is 500, returns (1, 'EUR')
+  Map<String, dynamic> _getCoutScale(double maxValue) {
+    if (maxValue >= 1000000) {
+      return {'factor': 1000000.toDouble(), 'unit': '*1M EUR'};
+    } else if (maxValue >= 1000) {
+      return {'factor': 1000.toDouble(), 'unit': '*1000 EUR'};
+    } else {
+      return {'factor': 1.toDouble(), 'unit': 'EUR'};
+    }
+  }
+
+
+  /// Builds the consumption graph with automatic scaling
+  /// This wraps the graph building to apply scaling to consumption values
+  Widget _buildGraphiqueConsommationAvecScale() {
+    // Calculate max value for scaling
+    final maxAncien = _spotsConsommationAncien.isNotEmpty 
+        ? _spotsConsommationAncien.map((s) => s.y).reduce((a, b) => a > b ? a : b) 
+        : 0.0;
+    final maxNouveau = _spotsConsommationNouveau.isNotEmpty 
+        ? _spotsConsommationNouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) 
+        : 0.0;
+    final maxValue = math.max(maxAncien, maxNouveau);
+    
+    // Get scale factor and unit
+    final scaleInfo = _getConsommationScale(maxValue);
+    final scaleFactor = (scaleInfo['factor'] as num).toDouble();
+    final unit = scaleInfo['unit'] as String;
+    
+    // Create scaled spots
+    final scaledAncien = _spotsConsommationAncien.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    final scaledNouveau = _spotsConsommationNouveau.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    
+    return RepaintBoundary(
+      key: _consoGraphKey,
+      child: _buildGraphiqueFromSpots(
+        'Consommation Énergétique sur 10 ans',
+        unit,
+        scaledAncien,
+        scaledNouveau,
+        Colors.orange,
+        Colors.blue,
+        false,
+        forceMinYToZero: true,
+      ),
+    );
+  }
+
+  /// Builds the cost graph with automatic scaling
+  /// This wraps the graph building to apply scaling to cost values
+  Widget _buildGraphiqueCoutAvecScale() {
+    // Calculate max value for scaling
+    final maxAncien = _spotsCoutAncien.isNotEmpty 
+        ? _spotsCoutAncien.map((s) => s.y).reduce((a, b) => a > b ? a : b) 
+        : 0.0;
+    final maxNouveau = _spotsCoutNouveau.isNotEmpty 
+        ? _spotsCoutNouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) 
+        : 0.0;
+    final maxValue = math.max(maxAncien, maxNouveau);
+    
+    // Get scale factor and unit
+    final scaleInfo = _getCoutScale(maxValue);
+    final scaleFactor = (scaleInfo['factor'] as num).toDouble();
+    final unit = scaleInfo['unit'] as String;
+    
+    // Create scaled spots
+    final scaledAncien = _spotsCoutAncien.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    final scaledNouveau = _spotsCoutNouveau.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    
+    return RepaintBoundary(
+      key: _coutGraphKey,
+      child: _buildGraphiqueFromSpots(
+        'Coût sur 10 ans',
+        unit,
+        scaledAncien,
+        scaledNouveau,
+        Colors.orange,
+        Colors.blue,
+        true,
+      ),
+    );
   }
 
   // ============================================================================
@@ -600,12 +799,6 @@ class _ResultatScreenState extends State<ResultatScreen> {
     return {'p1': p1Totale, 'detail': detailBuffer.toString()};
   }
 
-  /// Calculate total P1 for a system for a specific year (without detail)
-  double _calculerP1TotaleSysteme(List<Pompe> pompes, double percentagePerteRendement, int anneeCalcul) {
-    final result = _calculerP1TotaleSystemeAvecDetail(pompes, percentagePerteRendement, anneeCalcul);
-    return result['p1'] as double;
-  }
-
   /// Calculate total hours for a system (sum of all pumps' hours)
   int _calculerHeuresTotalesSysteme(List<Pompe> pompes) {
     if (pompes.isEmpty) return 0;
@@ -672,10 +865,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
               SizedBox(height: 8),
               
               // Cost calculation
-              Text('2. Calcul du Coût Énergétique (€) :', 
+              Text('2. Calcul du Coût Énergétique (EUR) :', 
                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
               SizedBox(height: 4),
-              Text('Formule: Consommation × Coût de l\'énergie (€/kWh)'),
+              Text('Formule: Consommation × Coût de l\'énergie (EUR/kWh)'),
               Text('Le coût de l\'énergie provient du projet et peut augmenter chaque année.'),
               SizedBox(height: 8),
               
@@ -684,7 +877,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
               SizedBox(height: 4),
               Text('Économie kWh = Consommation Ancien - Consommation Nouveau'),
-              Text('Économie € = Coût Ancien - Coût Nouveau'),
+              Text('Économie EUR = Coût Ancien - Coût Nouveau'),
               SizedBox(height: 8),
               
               // ROI calculation
@@ -731,6 +924,16 @@ class _ResultatScreenState extends State<ResultatScreen> {
         title: Text('Comparatif - ${_projet?.nomSite ?? 'Projet'}'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Exporter PDF',
+            onPressed: _exportComparatifPdf,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Sauvegarder PDF',
+            onPressed: _saveComparatifPdfLocally,
+          ),
           IconButton(icon: const Icon(Icons.settings), onPressed: () => SettingsDialog.show(context, 
             title: 'Paramètres de Calcul',
             onSaved: _loadData,
@@ -747,6 +950,49 @@ class _ResultatScreenState extends State<ResultatScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Sélecteur de contact
+                      if (_contacts.isNotEmpty) ...[
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text('Contact Associé', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<int>(
+                                  value: _selectedContactId,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Sélectionner un contact',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: _contacts.map((contact) {
+                                    return DropdownMenuItem<int>(
+                                      value: contact.id!,
+                                      child: Text('${contact.client} - ${contact.nom}'),
+                                    );
+                                  }).toList(),
+                                  onChanged: (newContactId) {
+                                    if (newContactId != null) {
+                                      _updateProjetContact(newContactId);
+                                    }
+                                  },
+                                  hint: const Text('Sélectionner un contact'),
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.edit, size: 18),
+                                  label: const Text('Modifier le contact sélectionné'),
+                                  onPressed: _selectedContactId != null 
+                                      ? () => _navigateToContactForm(_selectedContactId)
+                                      : null,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -771,9 +1017,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      _safeMode ? _buildPlaceholder('Consommation Énergétique sur 10 ans') : RepaintBoundary(child: _buildGraphiqueFromSpots('Consommation Énergétique sur 10 ans', 'kWh', _spotsConsommationAncien, _spotsConsommationNouveau, Colors.orange, Colors.blue, false)),
+                      _safeMode ? _buildPlaceholder('Consommation Énergétique sur 10 ans') : 
+                        _buildGraphiqueConsommationAvecScale(),
                       const SizedBox(height: 24),
-                      _safeMode ? _buildPlaceholder('Coût sur 10 ans') : RepaintBoundary(child: _buildGraphiqueFromSpots('Coût sur 10 ans', '€', _spotsCoutAncien, _spotsCoutNouveau, Colors.orange, Colors.blue, true)),
+                      _safeMode ? _buildPlaceholder('Coût sur 10 ans') : _buildGraphiqueCoutAvecScale(),
                       const SizedBox(height: 24),
                       _safeMode ? _buildPlaceholder('Énergie spécifique') : _buildGraphiqueEnergieSpecifique(),
                       const SizedBox(height: 24),
@@ -849,9 +1096,9 @@ class _ResultatScreenState extends State<ResultatScreen> {
                 DataColumn(label: Text('Conso Ancien (kWh)')),
                 DataColumn(label: Text('Conso Nouveau (kWh)')),
                 DataColumn(label: Text('Économie kWh')),
-                DataColumn(label: Text('Coût Ancien (€)')),
-                DataColumn(label: Text('Coût Nouveau (€)')),
-                DataColumn(label: Text('Économie €')),
+                DataColumn(label: Text('Coût Ancien (EUR)')),
+                DataColumn(label: Text('Coût Nouveau (EUR)')),
+                DataColumn(label: Text('Économie EUR')),
               ],
               rows: List.generate(10, (i) {
                 final economieKWh = _consommationsAncien[i] - _consommationsNouveau[i];
@@ -931,6 +1178,103 @@ class _ResultatScreenState extends State<ResultatScreen> {
           const SizedBox(height: 8),
         ]),
       ),
+    );
+  }
+
+  // Methodes d'export PDF
+  Future<void> _exportComparatifPdf() async {
+    if (_projet == null || _roiData == null) return;
+
+    // Capture des graphiques
+    final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
+    final coutImage = await PdfExportService.captureWidgetAsImage(_coutGraphKey);
+
+    // Preparation des donnees comparatif
+    final comparatifData = {
+      'dataAncien': {
+        'totalConsommation': _energieAncien,
+        'totalCout': _roiData!['coutAncienTotal'] as double? ?? 0,
+        'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
+      },
+      'dataNouveau': {
+        'totalConsommation': _energieNouveau,
+        'totalCout': _roiData!['coutNouveauTotal'] as double? ?? 0,
+        'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
+      },
+      'economieData': {
+        'economieConsommation': _energieAncien - _energieNouveau,
+        'economieCout': (_roiData!['coutAncienTotal'] as double? ?? 0) - (_roiData!['coutNouveauTotal'] as double? ?? 0),
+        'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
+      },
+      'annualData': {
+        'annees': _annees,
+        'consommationsAncien': _consommationsAncien,
+        'consommationsNouveau': _consommationsNouveau,
+        'coutsAncien': _coutsAncien,
+        'coutsNouveau': _coutsNouveau,
+      },
+    };
+
+    await PdfExportService.exportFullReportToPdf(
+      context: context,
+      projet: _projet!,
+      contact: _contact,
+      systemes: [_systemeAncien!, _systemeNouveau!],
+      pompesBySysteme: {
+        if (_systemeAncien?.id != null) _systemeAncien!.id!: _pompesAncien,
+        if (_systemeNouveau?.id != null) _systemeNouveau!.id!: _pompesNouveau,
+      },
+      comparatifData: comparatifData,
+      graphiqueConsommationImage: consoImage,
+      graphiqueCoutImage: coutImage,
+    );
+  }
+
+  Future<void> _saveComparatifPdfLocally() async {
+    if (_projet == null || _roiData == null) return;
+
+    // Capture des graphiques
+    final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
+    final coutImage = await PdfExportService.captureWidgetAsImage(_coutGraphKey);
+
+    // Preparation des donnees comparatif
+    final comparatifData = {
+      'dataAncien': {
+        'totalConsommation': _energieAncien,
+        'totalCout': _roiData!['coutAncienTotal'] as double? ?? 0,
+        'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
+      },
+      'dataNouveau': {
+        'totalConsommation': _energieNouveau,
+        'totalCout': _roiData!['coutNouveauTotal'] as double? ?? 0,
+        'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
+      },
+      'economieData': {
+        'economieConsommation': _energieAncien - _energieNouveau,
+        'economieCout': (_roiData!['coutAncienTotal'] as double? ?? 0) - (_roiData!['coutNouveauTotal'] as double? ?? 0),
+        'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
+      },
+      'annualData': {
+        'annees': _annees,
+        'consommationsAncien': _consommationsAncien,
+        'consommationsNouveau': _consommationsNouveau,
+        'coutsAncien': _coutsAncien,
+        'coutsNouveau': _coutsNouveau,
+      },
+    };
+
+    await PdfExportService.saveFullReportPdfLocally(
+      context: context,
+      projet: _projet!,
+      contact: _contact,
+      systemes: [_systemeAncien!, _systemeNouveau!],
+      pompesBySysteme: {
+        if (_systemeAncien?.id != null) _systemeAncien!.id!: _pompesAncien,
+        if (_systemeNouveau?.id != null) _systemeNouveau!.id!: _pompesNouveau,
+      },
+      comparatifData: comparatifData,
+      graphiqueConsommationImage: consoImage,
+      graphiqueCoutImage: coutImage,
     );
   }
 
@@ -1069,7 +1413,7 @@ class _SimpleLinePainter extends CustomPainter {
         final paintH = Paint()..color = colorAncien.withValues(alpha: 0.2)..strokeWidth = 1.0;
         canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
         // tooltip
-        final fmt = isCurrency ? NumberFormat.currency(symbol: '€ ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final fmt = isCurrency ? NumberFormat.currency(symbol: 'EUR ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
         final text = fmt.format(nearestAnc.y);
         final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
         tp.layout();
@@ -1084,7 +1428,7 @@ class _SimpleLinePainter extends CustomPainter {
         canvas.drawCircle(o, 4.0, p);
         final paintH = Paint()..color = colorNouveau.withValues(alpha: 0.2)..strokeWidth = 1.0;
         canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
-        final fmt = isCurrency ? NumberFormat.currency(symbol: '€ ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final fmt = isCurrency ? NumberFormat.currency(symbol: 'EUR ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
         final text = fmt.format(nearestNouv.y);
         final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
         tp.layout();

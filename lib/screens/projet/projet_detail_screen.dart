@@ -1,18 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:io';
 
-import 'package:pdf/widgets.dart' as pw;
-import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
 import '../../utils/error_handler.dart';
+import '../../utils/exportPDF.dart';
 import '../contact/contact_form_screen.dart';
 import '../systeme/systeme_form_screen.dart';
 import '../systeme/pompe_form_screen.dart';
@@ -32,6 +27,8 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   
   Projet? _projet;
   Contact? _contact;
+  List<Contact> _contacts = [];
+  int? _selectedContactId;
   List<Systeme> _systemes = [];
   Map<int, List<Pompe>> _pompesBySysteme = {}; // systemeId -> List<Pompe>
   Map<int, double> _energieSpecifiqueBySysteme = {}; // systemeId -> energieSpecifiqueCumulee
@@ -50,6 +47,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       if (projet != null) {
         final contact = await _db.getContactById(projet.contactId);
         final systemes = await _db.getSystemesByProjetId(widget.projetId);
+        final contacts = await _db.getAllContacts();
         
         // Charger les pompes pour chaque système
         final pompesBySysteme = <int, List<Pompe>>{};
@@ -66,6 +64,8 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         setState(() {
           _projet = projet;
           _contact = contact;
+          _contacts = contacts;
+          _selectedContactId = contact?.id;
           _systemes = systemes;
           _pompesBySysteme = pompesBySysteme;
           _energieSpecifiqueBySysteme = energieSpecifiqueBySysteme;
@@ -137,12 +137,24 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
             tooltip: 'Exporter en PDF',
-            onPressed: _exportProjetPdf,
+            onPressed: _projet != null ? () => PdfExportService.exportProjetToPdf(
+              context: context,
+              projet: _projet!,
+              contact: _contact,
+              systemes: _systemes,
+              pompesBySysteme: _pompesBySysteme,
+            ) : null,
           ),
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: 'Télécharger PDF',
-            onPressed: _saveProjetPdfLocally,
+            onPressed: _projet != null ? () => PdfExportService.saveProjetPdfLocally(
+              context: context,
+              projet: _projet!,
+              contact: _contact,
+              systemes: _systemes,
+              pompesBySysteme: _pompesBySysteme,
+            ) : null,
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -180,7 +192,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                                 Text('Mobile: ${_contact!.mobile}'),
                               ],
                               const SizedBox(height: 8),
-                              Text('Coût énergie: ${_projet!.coutEnergie} €/kWh'),
+                              Text('Coût énergie: ${_projet!.coutEnergie} EUR/kWh'),
                               Text('Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
                               Text('Perte rendement/an: ${_projet!.percentagePerteRendement}%'),
                             ],
@@ -189,7 +201,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                       ),
                       const SizedBox(height: 16),
                       
-                      // Boutons pour modifier le projet ou le contact
+                      // Boutons pour modifier le projet
                       Row(
                         children: [
                           Expanded(
@@ -202,13 +214,44 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: OutlinedButton.icon(
-                              icon: const Icon(Icons.edit),
+                              icon: const Icon(Icons.person),
                               label: const Text('Modifier Contact'),
-                              onPressed: () => _navigateToContactForm(_contact?.id),
+                              onPressed: () => _navigateToContactForm(_selectedContactId),
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 16),
+                      
+                      // Sélecteur de contact
+                      if (_contacts.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<int>(
+                                value: _selectedContactId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Contact associé',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: _contacts.map((contact) {
+                                  return DropdownMenuItem<int>(
+                                    value: contact.id!,
+                                    child: Text('${contact.client} - ${contact.nom}'),
+                                  );
+                                }).toList(),
+                                onChanged: (newContactId) {
+                                  if (newContactId != null) {
+                                    _updateProjetContact(newContactId);
+                                  }
+                                },
+                                hint: const Text('Sélectionner un contact'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       const SizedBox(height: 24),
                       
                       // Systèmes
@@ -303,88 +346,6 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     );
   }
 
-  Future<void> _exportProjetPdf() async {
-    if (_projet == null) return;
-
-    final doc = _buildProjetPdfDocument();
-
-    try {
-      final bytes = await doc.save();
-      await Printing.sharePdf(bytes: bytes, filename: '${_projet!.nomSite}_rapport.pdf');
-    } catch (e) {
-      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur export PDF: $e', error: true);
-    }
-  }
-
-  pw.Document _buildProjetPdfDocument() {
-    final doc = pw.Document();
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        build: (context) {
-          return <pw.Widget>[
-            pw.Header(level: 0, child: pw.Text('Rapport Projet - ${_projet!.nomSite}')),
-            pw.Paragraph(text: 'Client: ${_contact?.client ?? ''} - Contact: ${_contact?.nom ?? ''}'),
-            pw.SizedBox(height: 8),
-            pw.Text('Informations du Projet', style: const pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-            pw.Bullet(text: 'Nom du site: ${_projet!.nomSite}'),
-            pw.Bullet(text: 'Coût énergie: ${_projet!.coutEnergie} €/kWh'),
-            pw.Bullet(text: 'Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
-            pw.Bullet(text: 'Perte rendement/an: ${_projet!.percentagePerteRendement}%'),
-            pw.SizedBox(height: 12),
-            pw.Text('Systèmes et Pompes', style: const pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-            for (final systeme in _systemes) pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.SizedBox(height: 8),
-                pw.Text(systeme.nom, style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                pw.Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
-                pw.SizedBox(height: 6),
-                if ((_pompesBySysteme[systeme.id] ?? []).isEmpty)
-                  pw.Text('Aucune pompe')
-                else
-                  pw.Table.fromTextArray(
-                    headers: ['Marque/Modèle', 'P (kW)', 'Débit (m³/h)', 'HMT', 'Es', 'Heures', 'Coût'],
-                    data: (_pompesBySysteme[systeme.id] ?? []).map((pmp) => [
-                      '${pmp.marque} ${pmp.modele}',
-                      pmp.puissanceNominale.toStringAsFixed(2),
-                      pmp.debit.toStringAsFixed(2),
-                      pmp.hmt.toStringAsFixed(2),
-                      pmp.energieSpecifique.toStringAsFixed(4),
-                      pmp.heuresFonctionnement.toString(),
-                      pmp.coutInvestissement.toStringAsFixed(2),
-                    ]).toList(),
-                  ),
-              ],
-            ),
-          ];
-        },
-      ),
-    );
-
-    return doc;
-  }
-
-  Future<void> _saveProjetPdfLocally() async {
-    if (_projet == null) return;
-
-    final doc = _buildProjetPdfDocument();
-    try {
-      final bytes = await doc.save();
-      final dir = await getApplicationDocumentsDirectory();
-      final safeName = _projet!.nomSite.replaceAll(RegExp(r"[^a-zA-Z0-9_\-]"), '_');
-      final filePath = p.join(dir.path, '${safeName}_rapport.pdf');
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-      if (mounted) {
-        ErrorHandler.showSnackBar(context, 'PDF sauvegardé: $filePath');
-      }
-    } catch (e) {
-      if (mounted) ErrorHandler.showSnackBar(context, 'Erreur sauvegarde PDF: $e', error: true);
-    }
-  }
-
   Future<void> _showEditProjetDialog() async {
     if (_projet == null) return;
     
@@ -407,7 +368,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
               ),
               TextFormField(
                 controller: coutEnergieController,
-                decoration: const InputDecoration(labelText: 'Coût énergie (€/kWh)'),
+                decoration: const InputDecoration(labelText: 'Coût énergie (EUR/kWh)'),
                 keyboardType: TextInputType.number,
               ),
               TextFormField(
@@ -478,6 +439,27 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
     }
   }
 
+  Future<void> _updateProjetContact(int? newContactId) async {
+    if (_projet == null || newContactId == null) return;
+    
+    try {
+      final updatedProjet = _projet!.copyWith(contactId: newContactId);
+      await _db.updateProjet(updatedProjet);
+      
+      if (mounted) {
+        setState(() {
+          _selectedContactId = newContactId;
+        });
+        ErrorHandler.showSnackBar(context, 'Contact du projet mis à jour');
+        _loadData(); // Recharger pour obtenir le nouveau contact
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'Erreur de mise à jour: $e', error: true);
+      }
+    }
+  }
+
   Future<void> _navigateToSystemeForm(int? systemeId, [String? nomSysteme]) async {
     final result = await Navigator.push(
       context,
@@ -539,7 +521,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Coût investissement: ${systeme.coutInvestissementTotal} €'),
+                Text('Coût investissement: ${systeme.coutInvestissementTotal} EUR'),
                 if (pompes.isNotEmpty)
                   Text('Énergie spécifique cumulée: ${_formatNumber(energieSpecifiqueCumulee)} kW/m³/h'),
               ],
@@ -603,7 +585,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                 Text('P1 Corrigée: ${pompe.p1Estimee.toStringAsFixed(2)} kW'),
               Text('Es: ${pompe.energieSpecifique.toStringAsFixed(4)} kW/m³/h'),
               Text('Heures: ${pompe.heuresFonctionnement} h/an'),
-              Text('Coût: ${pompe.coutInvestissement} €'),
+              Text('Coût: ${pompe.coutInvestissement} EUR'),
             ],
           ),
           trailing: Row(
