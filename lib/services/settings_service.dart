@@ -13,6 +13,8 @@ class SettingsService {
   static const String _keyCoutEnergieDefault = 'cout_energie_default';
   static const String _keyPerteRendementDefault = 'perte_rendement_default';
   static const String _keyUseDefaultParams = 'use_default_params';
+  static const String _keyDureeEtudeAnnee = 'duree_etude_annee';
+  static const String _keyPourcentageAugmentationEnergieDefault = 'pourcentage_augmentation_energie_default';
   
   // Box Hive
   late final Box _settingsBox;
@@ -22,6 +24,8 @@ class SettingsService {
   double _coutEnergieDefault = 0.15;
   double _perteRendementDefault = 1.0;
   bool _useDefaultParams = false;
+  int _dureeEtudeAnnee = 10;
+  double _pourcentageAugmentationEnergieDefault = 5.0;
   
   SettingsService._init();
   
@@ -37,6 +41,8 @@ class SettingsService {
     _coutEnergieDefault = _settingsBox.get(_keyCoutEnergieDefault, defaultValue: 0.15);
     _perteRendementDefault = _settingsBox.get(_keyPerteRendementDefault, defaultValue: 1.0);
     _useDefaultParams = _settingsBox.get(_keyUseDefaultParams, defaultValue: false);
+    _dureeEtudeAnnee = _settingsBox.get(_keyDureeEtudeAnnee, defaultValue: 10);
+    _pourcentageAugmentationEnergieDefault = _settingsBox.get(_keyPourcentageAugmentationEnergieDefault, defaultValue: 5.0);
   }
   
   /// Sauvegarde des paramètres dans Hive
@@ -45,6 +51,8 @@ class SettingsService {
     await _settingsBox.put(_keyCoutEnergieDefault, _coutEnergieDefault);
     await _settingsBox.put(_keyPerteRendementDefault, _perteRendementDefault);
     await _settingsBox.put(_keyUseDefaultParams, _useDefaultParams);
+    await _settingsBox.put(_keyDureeEtudeAnnee, _dureeEtudeAnnee);
+    await _settingsBox.put(_keyPourcentageAugmentationEnergieDefault, _pourcentageAugmentationEnergieDefault);
   }
   
   // Getters
@@ -52,6 +60,8 @@ class SettingsService {
   double get coutEnergieDefault => _coutEnergieDefault;
   double get perteRendementDefault => _perteRendementDefault;
   bool get useDefaultParams => _useDefaultParams;
+  int get dureeEtudeAnnee => _dureeEtudeAnnee;
+  double get pourcentageAugmentationEnergieDefault => _pourcentageAugmentationEnergieDefault;
   
   // Setters (avec sauvegarde automatique)
   set maxAnneesPerteRendement(int value) {
@@ -73,6 +83,16 @@ class SettingsService {
     _useDefaultParams = value;
     _settingsBox.put(_keyUseDefaultParams, value);
   }
+
+  set dureeEtudeAnnee(int value) {
+    _dureeEtudeAnnee = value;
+    _settingsBox.put(_keyDureeEtudeAnnee, value);
+  }
+
+  set pourcentageAugmentationEnergieDefault(double value) {
+    _pourcentageAugmentationEnergieDefault = value;
+    _settingsBox.put(_keyPourcentageAugmentationEnergieDefault, value);
+  }
   
   /// Sauvegarde toutes les paramètres
   Future<void> saveAllSettings({
@@ -80,6 +100,8 @@ class SettingsService {
     double? coutEnergieDefault,
     double? perteRendementDefault,
     bool? useDefaultParams,
+    int? dureeEtudeAnnee,
+    double? pourcentageAugmentationEnergieDefault,
   }) async {
     if (maxAnneesPerteRendement != null) {
       _maxAnneesPerteRendement = maxAnneesPerteRendement;
@@ -93,6 +115,12 @@ class SettingsService {
     if (useDefaultParams != null) {
       _useDefaultParams = useDefaultParams;
     }
+    if (dureeEtudeAnnee != null) {
+      _dureeEtudeAnnee = dureeEtudeAnnee;
+    }
+    if (pourcentageAugmentationEnergieDefault != null) {
+      _pourcentageAugmentationEnergieDefault = pourcentageAugmentationEnergieDefault;
+    }
     await _saveSettings();
   }
   
@@ -102,6 +130,8 @@ class SettingsService {
     _coutEnergieDefault = 0.15;
     _perteRendementDefault = 1.0;
     _useDefaultParams = false;
+    _dureeEtudeAnnee = 10;
+    _pourcentageAugmentationEnergieDefault = 5.0;
     await _saveSettings();
   }
   

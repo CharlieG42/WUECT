@@ -22,7 +22,8 @@ import '../contact/contact_form_screen.dart';
 Map<String, List<double>> _calculerDonnees10AnsWrapper(List<dynamic> args) {
   final pompes = args[0] as List<Pompe>;
   final projet = args[1] as Projet;
-  return CalculService.calculerDonnees10AnsAvecPompes(pompes, projet);
+  final dureeAnnee = args.length > 2 ? args[2] as int : 10;
+  return CalculService.calculerDonnees10AnsAvecPompes(pompes, projet, dureeAnnee: dureeAnnee);
 }
 
 class ResultatScreen extends StatefulWidget {
@@ -37,6 +38,9 @@ class ResultatScreen extends StatefulWidget {
 class _ResultatScreenState extends State<ResultatScreen> {
   final DatabaseService _db = DatabaseService.instance;
   final SettingsService _settings = SettingsService.instance;
+
+  // Durée de l'étude en années (par défaut 10 ans)
+  late int _dureeEtude;
 
   // Clés pour capturer les graphiques en image
   final GlobalKey _consoGraphKey = GlobalKey();
@@ -78,6 +82,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
   List<String> _p1AncienDetailParAnnee = [];
   List<String> _p1NouveauDetailParAnnee = [];
 
+  // Detailed cost calculation strings for each year and system
+  List<String> _coutsAncienDetailParAnnee = [];
+  List<String> _coutsNouveauDetailParAnnee = [];
+
   bool _isLoading = true;
   bool _safeMode = false;
 
@@ -86,6 +94,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
   void initState() {
     super.initState();
     debugPrint('[DEBUG ResultatScreen] initState appelé - projetId: ${widget.projetId}');
+    _dureeEtude = _settings.dureeEtudeAnnee;
     _loadData();
   }
 
@@ -120,6 +129,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
     Color colorNouveau,
     bool isCurrency, {
     bool forceMinYToZero = false,
+    required String unit,
   }) {
     if (ancien.isEmpty && nouveau.isEmpty) {
       return _buildPlaceholder(title);
@@ -232,6 +242,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                       xTickCount: xTickCount,
                       yTickCount: yTickCount,
                       isCurrency: isCurrency,
+                      unit: unit,
                     ),
                   ),
                 ],
@@ -272,6 +283,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
   Future<void> _loadData() async {
     debugPrint('[DEBUG ResultatScreen] _loadData() démarré');
+    // Recharger la durée de l'étude au cas où elle a été modifiée
+    _dureeEtude = _settings.dureeEtudeAnnee;
     setState(() => _isLoading = true);
     try {
       debugPrint('[DEBUG ResultatScreen] Chargement du projet...');
@@ -326,23 +339,23 @@ class _ResultatScreenState extends State<ResultatScreen> {
       // ========================================================================
       // CALCUL 1: Volume Total et Énergie Totale
       // ========================================================================
-      // Volume = Σ(Débit × Heures de fonctionnement × 10 ans)
-      // Énergie = Σ(Énergie Spécifique × Débit × Heures de fonctionnement × 10 ans)
+      // Volume = Σ(Débit × Heures de fonctionnement × $_dureeEtude ans)
+      // Énergie = Σ(Énergie Spécifique × Débit × Heures de fonctionnement × $_dureeEtude ans)
       // Ces valeurs sont utilisées pour l'affichage comparatif des systèmes
-      _volumeAncien = _calculerVolumeTotal(_pompesAncien);
-      _volumeNouveau = _calculerVolumeTotal(_pompesNouveau);
-      _energieAncien = _calculerEnergieTotale(_pompesAncien);
-      _energieNouveau = _calculerEnergieTotale(_pompesNouveau);
+      _volumeAncien = _calculerVolumeTotal(_pompesAncien, _dureeEtude);
+      _volumeNouveau = _calculerVolumeTotal(_pompesNouveau, _dureeEtude);
+      _energieAncien = _calculerEnergieTotale(_pompesAncien, _dureeEtude);
+      _energieNouveau = _calculerEnergieTotale(_pompesNouveau, _dureeEtude);
 
-      // Générer les 10 prochaines années à partir de l'année en cours
+      // Générer les prochaines années à partir de l'année en cours
       final anneeEnCours = DateTime.now().year;
-      _annees = List.generate(10, (i) => anneeEnCours + i);
+      _annees = List.generate(_dureeEtude, (i) => anneeEnCours + i);
 
       // ========================================================================
-      // CALCUL 2: Données sur 10 ans (Consommations et Coûts)
+      // CALCUL 2: Données sur $_dureeEtude ans (Consommations et Coûts)
       // ========================================================================
       // Calcul des consommations et coûts énergétiques annuels pour chaque système
-      // sur une période de 10 ans, en tenant compte de :
+      // sur une période de $_dureeEtude ans, en tenant compte de :
       // - L'augmentation annuelle du coût de l'énergie
       // - La perte de rendement annuelle des équipements
       // Retourne un Map avec 'consommations' et 'coutsEnergetiques'
@@ -354,13 +367,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
               nomSite: projet.nomSite,
               contactId: projet.contactId,
               coutEnergie: _settings.coutEnergieDefault,
-              pourcentageAugmentationEnergie: projet.pourcentageAugmentationEnergie,
+              pourcentageAugmentationEnergie: _settings.pourcentageAugmentationEnergieDefault,
               percentagePerteRendement: _settings.perteRendementDefault,
             )
           : projet;
       
-      final donneesAncienFuture = compute(_calculerDonnees10AnsWrapper, [_pompesAncien, projetForCalculation]);
-      final donneesNouveauFuture = compute(_calculerDonnees10AnsWrapper, [_pompesNouveau, projetForCalculation]);
+      final donneesAncienFuture = compute(_calculerDonnees10AnsWrapper, [_pompesAncien, projetForCalculation, _dureeEtude]);
+      final donneesNouveauFuture = compute(_calculerDonnees10AnsWrapper, [_pompesNouveau, projetForCalculation, _dureeEtude]);
       final results = await Future.wait<Map<String, List<double>>>([donneesAncienFuture, donneesNouveauFuture]);
 
       final donneesAncien = results[0];
@@ -385,7 +398,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       _p1AncienDetailParAnnee = [];
       _p1NouveauDetailParAnnee = [];
       
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < _dureeEtude; i++) {
         final resultAncien = _calculerP1TotaleSystemeAvecDetail(_pompesAncien, effectivePerteRendement, _annees[i]);
         final resultNouveau = _calculerP1TotaleSystemeAvecDetail(_pompesNouveau, effectivePerteRendement, _annees[i]);
         _p1AncienParAnnee.add(resultAncien['p1'] as double);
@@ -394,13 +407,42 @@ class _ResultatScreenState extends State<ResultatScreen> {
         _p1NouveauDetailParAnnee.add(resultNouveau['detail'] as String);
       }
       
-      _muAncienParAnnee = List.generate(10, (i) => 
+      _muAncienParAnnee = List.generate(_dureeEtude, (i) => 
           _calculerMuMoyenSysteme(_pompesAncien, effectivePerteRendement, _annees[i]));
-      _muNouveauParAnnee = List.generate(10, (i) => 
+      _muNouveauParAnnee = List.generate(_dureeEtude, (i) => 
           _calculerMuMoyenSysteme(_pompesNouveau, effectivePerteRendement, _annees[i]));
       
       _heuresAncienTotal = _calculerHeuresTotalesSysteme(_pompesAncien);
       _heuresNouveauTotal = _calculerHeuresTotalesSysteme(_pompesNouveau);
+      
+      // Calculate cost details for each year
+      final coutEnergie = _settings.useDefaultParams ? _settings.coutEnergieDefault : projet.coutEnergie;
+      final pourcentageAugmentationEnergie = _settings.useDefaultParams ? _settings.pourcentageAugmentationEnergieDefault : projet.pourcentageAugmentationEnergie;
+      final anneeDebut = _annees.isEmpty ? DateTime.now().year : _annees[0];
+      
+      _coutsAncienDetailParAnnee = [];
+      _coutsNouveauDetailParAnnee = [];
+      
+      for (int i = 0; i < _dureeEtude; i++) {
+        final resultAncien = _calculerCoutTotaleSystemeAvecDetail(
+          _pompesAncien,
+          coutEnergie,
+          pourcentageAugmentationEnergie,
+          effectivePerteRendement,
+          _annees[i],
+          anneeDebut,
+        );
+        final resultNouveau = _calculerCoutTotaleSystemeAvecDetail(
+          _pompesNouveau,
+          coutEnergie,
+          pourcentageAugmentationEnergie,
+          effectivePerteRendement,
+          _annees[i],
+          anneeDebut,
+        );
+        _coutsAncienDetailParAnnee.add(resultAncien['detail'] as String);
+        _coutsNouveauDetailParAnnee.add(resultNouveau['detail'] as String);
+      }
 
       // ========================================================================
       // CALCUL 3: Intégration de l'investissement initial
@@ -438,7 +480,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         // Coûts cumulatifs qui incluent :
         // - L'investissement initial (une seule fois en année 0)
         // - Les coûts énergétiques annuels cumulés
-        // Cela permet d'afficher l'évolution du coût total sur 10 ans
+        // Cela permet d'afficher l'évolution du coût total sur $_dureeEtude ans
         final cumulativeAncien = <double>[];
         double sumAnc = 0.0;
         for (var i = 0; i < _coutsAncien.length; i++) {
@@ -522,7 +564,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       final coutAncienTotal = (donneesAncien['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
       final coutNouveauTotal = (donneesNouveau['coutsEnergetiques'] as List<double>).reduce((a, b) => a + b);
       
-      // Économies totales sur 10 ans (sans compter l'investissement)
+      // Économies totales sur $_dureeEtude ans (sans compter l'investissement)
       final economieTotale = coutAncienTotal - coutNouveauTotal;
       
       // Différence d'investissement entre les deux systèmes
@@ -530,10 +572,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
       // Calcul du ROI en années
       // Formule: ROI = Delta Investissement / (Économie annuelle moyenne)
-      // où Économie annuelle moyenne = économieTotale / 10
+      // où Économie annuelle moyenne = économieTotale / $_dureeEtude
       double roiAnnee = double.infinity;
       if (deltaInvestissement > 0 && economieTotale > 0) {
-        roiAnnee = deltaInvestissement / (economieTotale / 10);
+        roiAnnee = deltaInvestissement / (economieTotale / _dureeEtude);
       } else if (deltaInvestissement <= 0 && economieTotale >= 0) {
         // Si pas de delta ou économie immédiate, ROI = 0
         roiAnnee = 0.0;
@@ -649,12 +691,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
   /// if maxValue is 500000, returns (1000, '*1000 EUR')
   /// if maxValue is 500, returns (1, 'EUR')
   Map<String, dynamic> _getCoutScale(double maxValue) {
-    if (maxValue >= 1000000) {
-      return {'factor': 1000000.toDouble(), 'unit': '*1M EUR'};
-    } else if (maxValue >= 1000) {
-      return {'factor': 1000.toDouble(), 'unit': '*1000 EUR'};
+    //if (maxValue >= 1000000) {
+      //return {'factor': 1000000.toDouble(), 'unit': '*1M EUR'};
+    //} else if (maxValue >= 1000) {
+    if (maxValue >= 1000) {
+      return {'factor': 1000.toDouble(), 'unit': 'k€'};
     } else {
-      return {'factor': 1.toDouble(), 'unit': 'EUR'};
+      return {'factor': 1.toDouble(), 'unit': '€'};
     }
   }
 
@@ -683,7 +726,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
     return RepaintBoundary(
       key: _consoGraphKey,
       child: _buildGraphiqueFromSpots(
-        'Consommation Énergétique sur 10 ans',
+        'Consommation Énergétique sur $_dureeEtude ans',
         unit,
         scaledAncien,
         scaledNouveau,
@@ -691,6 +734,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         Colors.blue,
         false,
         forceMinYToZero: true,
+        unit: unit,
       ),
     );
   }
@@ -719,13 +763,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
     return RepaintBoundary(
       key: _coutGraphKey,
       child: _buildGraphiqueFromSpots(
-        'Coût sur 10 ans',
+        'Coût sur $_dureeEtude ans',
         unit,
         scaledAncien,
         scaledNouveau,
         Colors.orange,
         Colors.blue,
         true,
+        unit: unit,
       ),
     );
   }
@@ -734,27 +779,33 @@ class _ResultatScreenState extends State<ResultatScreen> {
   // CALCULATION UTILITY METHODS
   // ============================================================================
 
-  /// Calculate the total volume for a list of pumps over 10 years
-  /// Formula: Σ(debit × hours × 10) for all pumps
+  /// Calculate the total volume for a list of pumps over a given period
+  /// Formula: Σ(debit × hours × dureeAnnee) for all pumps
   /// Result in m³ (cubic meters)
-  double _calculerVolumeTotal(List<Pompe> pompes) {
-    return pompes.fold(0.0, (sum, pompe) => sum + pompe.debit * pompe.heuresFonctionnement * 10);
+  double _calculerVolumeTotal(List<Pompe> pompes, [int dureeAnnee = 10]) {
+    return pompes.fold(0.0, (sum, pompe) => sum + pompe.debit * pompe.heuresFonctionnement * dureeAnnee);
   }
 
-  /// Calculate the total energy consumption for a list of pumps over 10 years
-  /// Formula: Σ(es × debit × hours × 10) for all pumps
+  /// Calculate the total energy consumption for a list of pumps over a given period
+  /// Formula: Σ(es × debit × hours × dureeAnnee) for all pumps
   /// where es = énergie spécifique (specific energy) in kW/m³/h
   /// Result in kWh (kilowatt-hours)
-  double _calculerEnergieTotale(List<Pompe> pompes) {
-    return pompes.fold(0.0, (sum, pompe) => sum + pompe.energieSpecifique * pompe.debit * pompe.heuresFonctionnement * 10);
+  double _calculerEnergieTotale(List<Pompe> pompes, [int dureeAnnee = 10]) {
+    return pompes.fold(0.0, (sum, pompe) => sum + pompe.energieSpecifique * pompe.debit * pompe.heuresFonctionnement * dureeAnnee);
   }
 
   /// Calculate total P1 for a system for a specific year, taking into account rendement loss
-  /// CORRECTION 1: Always recalculate P1 from base parameters (debit, hmt, rendements)
-  /// Ignores p1Estimee to properly account for yearly efficiency degradation
-  /// Formula: Σ[(debit * hmt) / (367 * μPompeCorrige * μMoteurCorrige)] for all pumps
-  /// where μPompeCorrige = rendementInitialPompe * μPerte / 100
-  /// and μPerte = (1 - percentagePerteRendement/100)^(currentYear - installationYear)
+  /// Uses p1Estimee (Puissance Corrigée) if available, otherwise calculates from base parameters
+  /// 
+  /// Case 1: If p1Estimee is set (> 0), uses corrected power with degradation formula:
+  ///   P1(year) = p1Estimee / (1 - muCoef)^(2 * yearsPassed)
+  ///   This accounts for efficiency losses on both pump and motor sides
+  /// 
+  /// Case 2: If p1Estimee is not set, calculates P1 from base parameters:
+  ///   P1 = (debit * hmt) / (367 * μPompeCorrige * μMoteurCorrige)
+  ///   where μPompeCorrige = rendementInitialPompe * μPerte / 100
+  ///   and μPerte = (1 - percentagePerteRendement/100)^(currentYear - installationYear)
+  /// 
   /// Returns the total P1 and a string with the calculation detail
   Map<String, dynamic> _calculerP1TotaleSystemeAvecDetail(List<Pompe> pompes, double percentagePerteRendement, int anneeCalcul) {
     if (pompes.isEmpty) return {'p1': 0.0, 'detail': 'Aucune pompe'}; 
@@ -771,24 +822,33 @@ class _ResultatScreenState extends State<ResultatScreen> {
       final anneesLimitees = anneesEcoulees.clamp(0, maxYears);
       final muPerte = anneesEcoulees <= 0 ? 1.0 : math.pow(1 - muCoef, anneesLimitees).toDouble();
       
-      // Calculate corrected rendements
-      final muPompeCorrige = pompe.rendementInitialPompe * muPerte / 100.0;
-      final muMoteurCorrige = pompe.rendementInitialMoteur * muPerte / 100.0;
-      
-      // Recalculate P1 for this pump with current year's muPerte
-      // CORRECTION 1: Always use calculated P1, never use static p1Estimee
-      // P1 Calculée = (Débit × HMT) / (367 × μPompeCorrigé × μMoteurCorrigé)
-      final p1 = (pompe.debit * pompe.hmt) / (367 * muPompeCorrige * muMoteurCorrige);
+      final p1 = _calculerP1Pompe(pompe, muCoef, anneesLimitees, muPerte, anneeCalcul);
       
       p1Totale += p1;
       
       // Add to detail
       if (pompes.length == 1) {
-        detailBuffer.writeln('P1 = (${_formatNumber(pompe.debit)} × ${_formatNumber(pompe.hmt)}) / (367 × ${_formatRendement(muPompeCorrige)} × ${_formatRendement(muMoteurCorrige)})');
-        detailBuffer.writeln('  = ${_formatNumber(pompe.debit * pompe.hmt)} / ${_formatNumber(367 * muPompeCorrige * muMoteurCorrige)}');
-        detailBuffer.writeln('  = ${_formatNumber(p1)} kW');
+        if (pompe.p1Estimee > 0) {
+          detailBuffer.writeln('P1 = Puissance Corrigée: ${_formatNumber(pompe.p1Estimee)} kW');
+          if (anneesLimitees > 0) {
+            detailBuffer.writeln('  Dégradation sur $anneesLimitees ans: / (1 - ${_formatNumber(muCoef)})^${2 * anneesLimitees}');
+          }
+          detailBuffer.writeln('  = ${_formatNumber(p1)} kW');
+        } else {
+          final muPompeCorrige = pompe.rendementInitialPompe * muPerte / 100.0;
+          final muMoteurCorrige = pompe.rendementInitialMoteur * muPerte / 100.0;
+          detailBuffer.writeln('P1 = (${_formatNumber(pompe.debit)} × ${_formatNumber(pompe.hmt)}) / (367 × ${_formatRendement(muPompeCorrige)} × ${_formatRendement(muMoteurCorrige)})');
+          detailBuffer.writeln('  = ${_formatNumber(pompe.debit * pompe.hmt)} / ${_formatNumber(367 * muPompeCorrige * muMoteurCorrige)}');
+          detailBuffer.writeln('  = ${_formatNumber(p1)} kW');
+        }
       } else {
-        detailBuffer.writeln('Pompe: (${_formatNumber(pompe.debit)} × ${_formatNumber(pompe.hmt)}) / (367 × ${_formatRendement(muPompeCorrige)} × ${_formatRendement(muMoteurCorrige)}) = ${_formatNumber(p1)} kW');
+        if (pompe.p1Estimee > 0) {
+          detailBuffer.writeln('Pompe (corrigée): ${_formatNumber(pompe.p1Estimee)} kW → ${_formatNumber(p1)} kW');
+        } else {
+          final muPompeCorrige = pompe.rendementInitialPompe * muPerte / 100.0;
+          final muMoteurCorrige = pompe.rendementInitialMoteur * muPerte / 100.0;
+          detailBuffer.writeln('Pompe: (${_formatNumber(pompe.debit)} × ${_formatNumber(pompe.hmt)}) / (367 × ${_formatRendement(muPompeCorrige)} × ${_formatRendement(muMoteurCorrige)}) = ${_formatNumber(p1)} kW');
+        }
       }
     }
     
@@ -799,10 +859,65 @@ class _ResultatScreenState extends State<ResultatScreen> {
     return {'p1': p1Totale, 'detail': detailBuffer.toString()};
   }
 
+  /// Calculate P1 for a single pump, using either corrected power or calculated power
+  double _calculerP1Pompe(Pompe pompe, double muCoef, int anneesLimitees, double muPerte, int anneeCalcul) {
+    // Case 1: Use corrected power (p1Estimee) if available
+    if (pompe.p1Estimee > 0) {
+      // P1(year) = p1Estimee / (1 - muCoef)^(2 * anneesLimitees)
+      // This accounts for efficiency losses on both pump and motor sides
+      final degradationFactor = anneesLimitees > 0 ? math.pow(1 - muCoef, 2 * anneesLimitees).toDouble() : 1.0;
+      return pompe.p1Estimee / degradationFactor;
+    }
+    
+    // Case 2: Calculate P1 from base parameters (debit, hmt, rendements)
+    // P1 = (debit * hmt) / (367 * μPompeCorrigé * μMoteurCorrigé)
+    final muPompeCorrige = pompe.rendementInitialPompe * muPerte / 100.0;
+    final muMoteurCorrige = pompe.rendementInitialMoteur * muPerte / 100.0;
+    return (pompe.debit * pompe.hmt) / (367 * muPompeCorrige * muMoteurCorrige);
+  }
+
   /// Calculate total hours for a system (sum of all pumps' hours)
   int _calculerHeuresTotalesSysteme(List<Pompe> pompes) {
     if (pompes.isEmpty) return 0;
     return pompes.fold(0, (sum, pompe) => sum + pompe.heuresFonctionnement);
+  }
+
+  /// Calculate total cost for a system for a specific year, with calculation details
+  /// Returns the total cost and a string with the calculation detail
+  Map<String, dynamic> _calculerCoutTotaleSystemeAvecDetail(
+    List<Pompe> pompes,
+    double coutEnergie,
+    double pourcentageAugmentationEnergie,
+    double percentagePerteRendement,
+    int anneeCalcul,
+    int anneeDebut,
+  ) {
+    if (pompes.isEmpty) return {'cout': 0.0, 'detail': 'Aucune pompe'}; 
+    
+    // Calculate consumption for this year using CalculService
+    final consommation = CalculService.calculerConsommationAnnuelleSystemeAvecPompes(
+      pompes,
+      anneeCalcul,
+      percentagePerteRendement,
+    );
+    
+    // Calculate energy cost for this year
+    // The energy cost increases annually from anneeDebut
+    final anneesEcoulees = anneeCalcul - anneeDebut;
+    final coutEnergieActuel = coutEnergie * math.pow(1 + pourcentageAugmentationEnergie / 100.0, anneesEcoulees).toDouble();
+    final cout = consommation * coutEnergieActuel;
+    
+    // Build detail string
+    final detailBuffer = StringBuffer();
+    detailBuffer.writeln('Consommation: ${_formatNumber(consommation)} kWh');
+    if (anneesEcoulees > 0) {
+      detailBuffer.writeln('Coût énergie: ${_formatNumber(coutEnergie)} × (1 + ${_formatNumber(pourcentageAugmentationEnergie)}%)^$anneesEcoulees = ${_formatNumber(coutEnergieActuel)} EUR/kWh');
+    } else {
+      detailBuffer.writeln('Coût énergie: ${_formatNumber(coutEnergie)} EUR/kWh');
+    }
+    detailBuffer.writeln('Coût total = ${_formatNumber(consommation)} kWh × ${_formatNumber(coutEnergieActuel)} EUR/kWh = ${_formatNumber(cout)} EUR');
+    
+    return {'cout': cout, 'detail': detailBuffer.toString()};
   }
 
   /// Calculate average corrected efficiency (μ) for a system for a specific year
@@ -845,13 +960,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Détail des Calculs'),
-        content: const SingleChildScrollView(
+        content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               // General info
-              Text('Les calculs sont effectués pour chaque année sur 10 ans.', 
+              Text('Les calculs sont effectués pour chaque année sur $_dureeEtude ans.', 
                   style: TextStyle(fontWeight: FontWeight.bold)),
               SizedBox(height: 12),
               
@@ -884,7 +999,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
               Text('4. Calcul du ROI (Retour sur Investissement) :', 
                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
               SizedBox(height: 4),
-              Text('Économie totale sur 10 ans = Somme des économies annuelles'),
+              Text('Économie totale sur $_dureeEtude ans = Somme des économies annuelles'),
               Text('Delta Investissement = Coût Nouveau - Coût Ancien'),
               Text('ROI (années) = Delta Investissement / (Économie annuelle moyenne)'),
               SizedBox(height: 8),
@@ -893,8 +1008,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
               Text('5. Calcul du Volume Total :', 
                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
               SizedBox(height: 4),
-              Text('Formule: Σ(Débit × Heures de fonctionnement × 10)'),
-              Text('Le facteur 10 convertit en m³ (débit en m³/h × heures × 10 ans)'),
+              Text('Formule: Σ(Débit × Heures de fonctionnement × $_dureeEtude)'),
+              Text('Le facteur $_dureeEtude convertit en m³ (débit en m³/h × heures × $_dureeEtude ans)'),
               SizedBox(height: 8),
               
               // Note about corrected power
@@ -903,7 +1018,9 @@ class _ResultatScreenState extends State<ResultatScreen> {
               SizedBox(height: 4),
               Text('Si une valeur de P1 Corrigée est saisie, elle est utilisée'),
               Text('au lieu de la P1 Calculée pour tous les calculs.'),
-              Text('Cela permet d\'ajuster manuellement la puissance si nécessaire.'),
+              Text('La dégradation annuelle est appliquée selon:'),
+              Text('P1(n) = P1 corrigée / (1 - %perte)^(2 × n)'),
+              Text('Cela permet de tenir compte des pertes de rendement côté pompe et moteur.'),
             ],
           ),
         ),
@@ -1017,10 +1134,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      _safeMode ? _buildPlaceholder('Consommation Énergétique sur 10 ans') : 
+                      _safeMode ? _buildPlaceholder('Consommation Énergétique sur $_dureeEtude ans') : 
                         _buildGraphiqueConsommationAvecScale(),
                       const SizedBox(height: 24),
-                      _safeMode ? _buildPlaceholder('Coût sur 10 ans') : _buildGraphiqueCoutAvecScale(),
+                      _safeMode ? _buildPlaceholder('Coût sur $_dureeEtude ans') : _buildGraphiqueCoutAvecScale(),
                       const SizedBox(height: 24),
                       _safeMode ? _buildPlaceholder('Énergie spécifique') : _buildGraphiqueEnergieSpecifique(),
                       const SizedBox(height: 24),
@@ -1040,10 +1157,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Analyse de Rentabilité (ROI)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Analyse de Rentabilité (ROI)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const Divider(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Coût énergétique total (10 ans):'),
+              Text('Coût énergétique total ($_dureeEtude ans):'),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Text('Ancien: ${_formatCurrency(_roiData!['coutAncienTotal'])}', style: const TextStyle(color: Colors.orange)),
                 Text('Nouveau: ${_formatCurrency(_roiData!['coutNouveauTotal'])}', style: const TextStyle(color: Colors.blue)),
@@ -1051,7 +1168,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
             ]),
             const SizedBox(height: 8),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Économie sur 10 ans:'),
+              Text('Économie sur $_dureeEtude ans:'),
               Text(_roiData!['economieTotale'] >= 0 ? '+${_formatCurrency(_roiData!['economieTotale'])}' : _formatCurrency(_roiData!['economieTotale']), style: TextStyle(color: _roiData!['economieTotale'] >= 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
             ]),
           ],
@@ -1085,24 +1202,35 @@ class _ResultatScreenState extends State<ResultatScreen> {
               columnSpacing: 12,
               columns: const [
                 DataColumn(label: Text('Année')),
-                DataColumn(label: Text('P1 Ancien (kW)')),
-                DataColumn(label: Text('Détail P1 Ancien')),
-                DataColumn(label: Text('μ Ancien (%)')),
-                DataColumn(label: Text('P1 Nouveau (kW)')),
-                DataColumn(label: Text('Détail P1 Nouveau')),
-                DataColumn(label: Text('μ Nouveau (%)')),
-                DataColumn(label: Text('Heures Ancien (h)')),
-                DataColumn(label: Text('Heures Nouveau (h)')),
-                DataColumn(label: Text('Conso Ancien (kWh)')),
-                DataColumn(label: Text('Conso Nouveau (kWh)')),
-                DataColumn(label: Text('Économie kWh')),
-                DataColumn(label: Text('Coût Ancien (EUR)')),
-                DataColumn(label: Text('Coût Nouveau (EUR)')),
-                DataColumn(label: Text('Économie EUR')),
+                DataColumn(label: Text('P1 Ancien\n(kW)')),
+                DataColumn(label: Text('Détail P1\nAncien', textAlign: TextAlign.center)),
+                DataColumn(label: Text('μ Ancien\n(%)')),
+                DataColumn(label: Text('P1 Nouveau\n(kW)')),
+                DataColumn(label: Text('Détail P1\nNouveau', textAlign: TextAlign.center)),
+                DataColumn(label: Text('μ Nouveau\n(%)')),
+                DataColumn(label: Text('Heures Ancien\n(h)')),
+                DataColumn(label: Text('Heures Nouveau\n(h)')),
+                DataColumn(label: Text('Conso Ancien\n(kWh)')),
+                DataColumn(label: Text('Conso Nouveau\n(kWh)')),
+                DataColumn(label: Text('Économie\n(kWh)')),
+                DataColumn(label: Text('Coût Ancien\n(EUR)')),
+                DataColumn(label: Text('Détail Coût\nAncien', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Coût Nouveau\n(EUR)')),
+                DataColumn(label: Text('Détail Coût\nNouveau', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Économie\nEUR')),
+                DataColumn(label: Text('Éco. cumulée\n(kWh)')),
+                DataColumn(label: Text('Éco. cumulée\n(EUR)')),
               ],
-              rows: List.generate(10, (i) {
+              rows: List.generate(_dureeEtude, (i) {
                 final economieKWh = _consommationsAncien[i] - _consommationsNouveau[i];
                 final economieEuro = _coutsAncien[i] - _coutsNouveau[i];
+                
+                // Calculate cumulative savings
+                final cumuleKWh = _consommationsAncien.take(i+1).fold(0.0, (sum, val) => sum + val) - 
+                                  _consommationsNouveau.take(i+1).fold(0.0, (sum, val) => sum + val);
+                final cumuleEuro = _coutsAncien.take(i+1).fold(0.0, (sum, val) => sum + val) - 
+                                   _coutsNouveau.take(i+1).fold(0.0, (sum, val) => sum + val);
+                
                 return DataRow(cells: [
                   DataCell(Text('${_annees[i]}')),
                   DataCell(Text(_formatNumber(_p1AncienParAnnee[i]))),
@@ -1123,8 +1251,18 @@ class _ResultatScreenState extends State<ResultatScreen> {
                   DataCell(Text(formatUnit(_consommationsNouveau[i]))),
                   DataCell(Text(formatUnit(economieKWh), style: TextStyle(color: economieKWh >= 0 ? Colors.green : Colors.red))),
                   DataCell(Text(formatUnit(_coutsAncien[i]))),
+                  DataCell(Tooltip(
+                    message: _coutsAncienDetailParAnnee[i],
+                    child: const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                  )),
                   DataCell(Text(formatUnit(_coutsNouveau[i]))),
+                  DataCell(Tooltip(
+                    message: _coutsNouveauDetailParAnnee[i],
+                    child: const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                  )),
                   DataCell(Text(formatUnit(economieEuro), style: TextStyle(color: economieEuro >= 0 ? Colors.green : Colors.red))),
+                  DataCell(Text(formatUnit(cumuleKWh), style: TextStyle(color: cumuleKWh >= 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold))),
+                  DataCell(Text(formatUnit(cumuleEuro), style: TextStyle(color: cumuleEuro >= 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold))),
                 ]);
               }).toList(),
             ),
@@ -1138,7 +1276,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final consommationPremiereAnnee = consommations.isEmpty ? 0.0 : consommations[0];
     final coutPremiereAnnee = couts.isEmpty ? 0.0 : couts[0];
     
-    // Calcul des moyennes sur 10 ans
+    // Calcul des moyennes sur $_dureeEtude ans
     final consommationMoyenne = consommations.isEmpty ? 0.0 : consommations.reduce((a, b) => a + b).toDouble() / consommations.length;
     final coutMoyen = couts.isEmpty ? 0.0 : couts.reduce((a, b) => a + b).toDouble() / couts.length;
     
@@ -1154,8 +1292,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
           Text('Consommation Année $premiereAnnee: ${_formatNumber(consommationPremiereAnnee)} kWh'),
           Text('Coût total pour l\'année $premiereAnnee: ${_formatCurrency(coutPremiereAnnee)}'),
           const SizedBox(height: 4),
-          Text('Consommation moyenne sur 10 ans: ${_formatNumber(consommationMoyenne)} kWh'),
-          Text('Coût total moyen sur 10 ans: ${_formatCurrency(coutMoyen)}'),
+          Text('Consommation moyenne sur $_dureeEtude ans: ${_formatNumber(consommationMoyenne)} kWh'),
+          Text('Coût total moyen sur $_dureeEtude ans: ${_formatCurrency(coutMoyen)}'),
         ]),
       ),
     );
@@ -1166,7 +1304,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Volume vs Énergie Consommée (sur 10 ans)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text('Volume vs Énergie Consommée (sur $_dureeEtude ans)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Comparaison des systèmes basée sur l\'énergie spécifique des pompes', style: TextStyle(color: Colors.grey, fontSize: 14)),
           const SizedBox(height: 16),
@@ -1299,8 +1437,9 @@ class _SimpleLineChart extends StatefulWidget {
   final int xTickCount;
   final int yTickCount;
   final bool isCurrency;
+  final String unit;
 
-  const _SimpleLineChart({Key? key, required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, required this.isCurrency}) : super(key: key);
+  const _SimpleLineChart({Key? key, required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, required this.isCurrency, required this.unit}) : super(key: key);
 
   @override
   State<_SimpleLineChart> createState() => _SimpleLineChartState();
@@ -1342,6 +1481,7 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
               yTickCount: widget.yTickCount,
               hoverFraction: _hoverFraction,
               isCurrency: widget.isCurrency,
+              unit: widget.unit,
             ),
             size: Size.infinite,
           ),
@@ -1364,8 +1504,9 @@ class _SimpleLinePainter extends CustomPainter {
   final int yTickCount;
   final double? hoverFraction; // 0..1 or null
   final bool isCurrency;
+  final String unit;
 
-  _SimpleLinePainter({required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, this.hoverFraction, required this.isCurrency});
+  _SimpleLinePainter({required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, this.hoverFraction, required this.isCurrency, required this.unit});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1413,8 +1554,8 @@ class _SimpleLinePainter extends CustomPainter {
         final paintH = Paint()..color = colorAncien.withValues(alpha: 0.2)..strokeWidth = 1.0;
         canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
         // tooltip
-        final fmt = isCurrency ? NumberFormat.currency(symbol: 'EUR ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
-        final text = fmt.format(nearestAnc.y);
+        final fmt = isCurrency ? NumberFormat.currency(symbol: '', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final text = '${fmt.format(nearestAnc.y)} $unit';
         final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
         tp.layout();
         final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
@@ -1428,8 +1569,8 @@ class _SimpleLinePainter extends CustomPainter {
         canvas.drawCircle(o, 4.0, p);
         final paintH = Paint()..color = colorNouveau.withValues(alpha: 0.2)..strokeWidth = 1.0;
         canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
-        final fmt = isCurrency ? NumberFormat.currency(symbol: 'EUR ', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
-        final text = fmt.format(nearestNouv.y);
+        final fmt = isCurrency ? NumberFormat.currency(symbol: '', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
+        final text = '${fmt.format(nearestNouv.y)} $unit';
         final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
         tp.layout();
         final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
@@ -1446,8 +1587,13 @@ class _SimpleLinePainter extends CustomPainter {
       final dx = (i / (vCount - 1)) * size.width;
       canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paintGrid);
     }
-    for (var i = 0; i < hCount; i++) {
-      final dy = size.height - (i / (hCount - 1)) * size.height;
+    // Draw horizontal grid lines aligned with Y axis ticks
+    // Calculate actual Y values for each tick to align grid lines with axis labels
+    for (var i = 0; i <= yTickCount; i++) {
+      // Calculate the value at this tick position (same formula as in _buildGraphiqueFromSpots)
+      final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
+      // Convert value to Y position (same formula as toOffset)
+      final dy = size.height - ((v - minY) / (maxY - minY)) * size.height;
       canvas.drawLine(Offset(0, dy), Offset(size.width, dy), paintGrid);
     }
 

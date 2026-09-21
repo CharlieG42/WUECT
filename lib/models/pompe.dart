@@ -68,16 +68,11 @@ class Pompe {
   }
 
   // Puissance à utiliser pour les calculs
+  // Si p1Estimee (Puissance Corrigée) est renseignée, on l'utilise
+  // sinon on utilise la puissance calculée à partir des paramètres
   double get puissanceUtilisee {
     if (p1Estimee > 0) {
-      // Calculer p1Calculee une seule fois pour la comparaison
-      final p1Calc = (debit <= 0 || hmt <= 0 || rendementInitialPompe <= 0 || rendementInitialMoteur <= 0) 
-          ? 0.0 
-          : (debit * hmt) / (367 * (rendementInitialPompe / 100) * (rendementInitialMoteur / 100));
-      if (p1Estimee != p1Calc) {
-        return p1Estimee;
-      }
-      return p1Calc;
+      return p1Estimee;
     }
     return p1Calculee;
   }

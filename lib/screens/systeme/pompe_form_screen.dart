@@ -98,7 +98,8 @@ class _PompeFormScreenState extends State<PompeFormScreen> {
     final debit = double.tryParse(_debitController.text) ?? 0.0;
     final p1Estimee = double.tryParse(_p1EstimeeController.text) ?? 0.0;
     
-    final puissanceUtilisee = (p1Estimee > 0 && p1Estimee != p1Calculee) ? p1Estimee : p1Calculee;
+    // Si p1Estimee est renseignée, on l'utilise, sinon on utilise p1Calculee
+    final puissanceUtilisee = p1Estimee > 0 ? p1Estimee : p1Calculee;
     
     if (debit <= 0) return 0.0;
     return puissanceUtilisee / debit;

@@ -72,30 +72,56 @@ class CalculService {
     return _calculerConsommationAnnuelleSystemeAvecPompes(pompes, anneeEnCours, percentagePerteRendement);
   }
 
+  /// Calcule la consommation annuelle totale avec les pompes déjà chargées (version publique)
+  /// Utilise p1Estimee (Puissance Corrigée) si disponible, sinon calcule à partir des paramètres
+  static double calculerConsommationAnnuelleSystemeAvecPompes(
+    List<Pompe> pompes,
+    int anneeEnCours,
+    double percentagePerteRendement,
+  ) {
+    return _calculerConsommationAnnuelleSystemeAvecPompes(pompes, anneeEnCours, percentagePerteRendement);
+  }
+
   /// Calcule la consommation annuelle totale avec les pompes déjà chargées
+  /// Utilise p1Estimee (Puissance Corrigée) si disponible, sinon calcule à partir des paramètres
   static double _calculerConsommationAnnuelleSystemeAvecPompes(
     List<Pompe> pompes,
     int anneeEnCours,
     double percentagePerteRendement,
   ) {
     double consommationTotale = 0.0;
+    final muCoef = percentagePerteRendement.clamp(0.0, 100.0) / 100.0;
+    const maxYears = 15; // Same limit as in calculerMuPerte
 
     for (final pompe in pompes) {
-      final muPerte = calculerMuPerte(
-        percentagePerteRendement,
-        pompe.anneeInstallation,
-        anneeEnCours,
-      );
-      final muPompeCorrige = calculerMuPompeCorrige(pompe.rendementInitialPompe, muPerte);
-      final muMoteurCorrige = calculerMuPompeCorrige(pompe.rendementInitialMoteur, muPerte);
+      final anneesEcoulees = anneeEnCours - pompe.anneeInstallation;
+      final anneesLimitees = anneesEcoulees.clamp(0, maxYears);
       
-      consommationTotale += calculerConsommationAnnuellePompe(
-        pompe.debit,
-        pompe.hmt,
-        muPompeCorrige,
-        muMoteurCorrige,
-        pompe.heuresFonctionnement,
-      );
+      // Case 1: Use corrected power (p1Estimee) if available
+      if (pompe.p1Estimee > 0) {
+        // P1(year) = p1Estimee / (1 - muCoef)^(2 * anneesLimitees)
+        // This accounts for efficiency losses on both pump and motor sides
+        final degradationFactor = anneesLimitees > 0 ? pow(1 - muCoef, 2 * anneesLimitees).toDouble() : 1.0;
+        final p1 = pompe.p1Estimee / degradationFactor;
+        consommationTotale += p1 * pompe.heuresFonctionnement;
+      } else {
+        // Case 2: Calculate from base parameters
+        final muPerte = calculerMuPerte(
+          percentagePerteRendement,
+          pompe.anneeInstallation,
+          anneeEnCours,
+        );
+        final muPompeCorrige = calculerMuPompeCorrige(pompe.rendementInitialPompe, muPerte);
+        final muMoteurCorrige = calculerMuPompeCorrige(pompe.rendementInitialMoteur, muPerte);
+        
+        consommationTotale += calculerConsommationAnnuellePompe(
+          pompe.debit,
+          pompe.hmt,
+          muPompeCorrige,
+          muMoteurCorrige,
+          pompe.heuresFonctionnement,
+        );
+      }
     }
     return consommationTotale;
   }
@@ -162,27 +188,42 @@ class CalculService {
     final List<double> consommations = [];
     final List<double> coutsEnergetiques = [];
     double coutEnergieActuel = projet.coutEnergie;
+    final muCoef = projet.percentagePerteRendement.clamp(0.0, 100.0) / 100.0;
+    const maxYears = 15;
 
     for (int annee = 0; annee < 10; annee++) {
       final anneeCalcul = anneeEnCours + annee;
       double consommationTotale = 0.0;
 
       for (final pompe in pompes) {
-        final muPerte = calculerMuPerte(
-          projet.percentagePerteRendement,
-          pompe.anneeInstallation,
-          anneeCalcul,
-        );
-        final muPompeCorrige = calculerMuPompeCorrige(pompe.rendementInitialPompe, muPerte);
-        final muMoteurCorrige = calculerMuPompeCorrige(pompe.rendementInitialMoteur, muPerte);
+        final anneesEcoulees = anneeCalcul - pompe.anneeInstallation;
+        final anneesLimitees = anneesEcoulees.clamp(0, maxYears);
+        
+        // Case 1: Use corrected power (p1Estimee) if available
+        if (pompe.p1Estimee > 0) {
+          // P1(year) = p1Estimee / (1 - muCoef)^(2 * anneesLimitees)
+          // This accounts for efficiency losses on both pump and motor sides
+          final degradationFactor = anneesLimitees > 0 ? pow(1 - muCoef, 2 * anneesLimitees).toDouble() : 1.0;
+          final p1 = pompe.p1Estimee / degradationFactor;
+          consommationTotale += p1 * pompe.heuresFonctionnement;
+        } else {
+          // Case 2: Calculate from base parameters
+          final muPerte = calculerMuPerte(
+            projet.percentagePerteRendement,
+            pompe.anneeInstallation,
+            anneeCalcul,
+          );
+          final muPompeCorrige = calculerMuPompeCorrige(pompe.rendementInitialPompe, muPerte);
+          final muMoteurCorrige = calculerMuPompeCorrige(pompe.rendementInitialMoteur, muPerte);
 
-        consommationTotale += calculerConsommationAnnuellePompe(
-          pompe.debit,
-          pompe.hmt,
-          muPompeCorrige,
-          muMoteurCorrige,
-          pompe.heuresFonctionnement,
-        );
+          consommationTotale += calculerConsommationAnnuellePompe(
+            pompe.debit,
+            pompe.hmt,
+            muPompeCorrige,
+            muMoteurCorrige,
+            pompe.heuresFonctionnement,
+          );
+        }
       }
 
       consommations.add(consommationTotale);
@@ -254,17 +295,18 @@ class CalculService {
     };
   }
 
-  /// Calcule les données sur 10 ans avec les pompes déjà chargées
+  /// Calcule les données sur une durée donnée avec les pompes déjà chargées
   static Map<String, List<double>> _calculerDonnees10AnsAvecPompes(
     List<Pompe> pompes,
-    Projet projet,
-  ) {
+    Projet projet, {
+    int dureeAnnee = 10,
+  }) {
     final anneeEnCours = DateTime.now().year;
     final List<double> consommations = [];
     final List<double> coutsEnergetiques = [];
     double coutEnergieActuel = projet.coutEnergie;
 
-    for (int annee = 0; annee < 10; annee++) {
+    for (int annee = 0; annee < dureeAnnee; annee++) {
       final anneeCalcul = anneeEnCours + annee;
       
       // Calcul de la consommation pour cette année
@@ -290,12 +332,14 @@ class CalculService {
     };
   }
 
-  /// Calcule les données sur 10 ans avec les pompes déjà chargées (version publique)
+  /// Calcule les données sur une durée donnée avec les pompes déjà chargées (version publique)
+  /// Si dureeAnnee n'est pas spécifié, utilise 10 ans par défaut
   static Map<String, List<double>> calculerDonnees10AnsAvecPompes(
     List<Pompe> pompes,
-    Projet projet,
-  ) {
-    return _calculerDonnees10AnsAvecPompes(pompes, projet);
+    Projet projet,{
+    int dureeAnnee = 10,
+  }) {
+    return _calculerDonnees10AnsAvecPompes(pompes, projet, dureeAnnee: dureeAnnee);
   }
 
   /// Calcule toutes les données pour le comparatif

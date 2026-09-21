@@ -19,6 +19,8 @@ class SettingsDialog {
     final maxAnneesController = TextEditingController(text: settings.maxAnneesPerteRendement.toString());
     final coutEnergieController = TextEditingController(text: settings.coutEnergieDefault.toString());
     final perteRendementController = TextEditingController(text: settings.perteRendementDefault.toString());
+    final dureeEtudeController = TextEditingController(text: settings.dureeEtudeAnnee.toString());
+    final pourcentageAugmentationEnergieController = TextEditingController(text: settings.pourcentageAugmentationEnergieDefault.toString());
 
     showDialog(
       context: context,
@@ -103,8 +105,46 @@ class SettingsDialog {
                     return null;
                   },
                 ),
+                const SizedBox(height: 12),
+                
+                // Study duration
+                TextFormField(
+                  controller: dureeEtudeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Durée de l\'étude',
+                    suffixText: 'ans',
+                    border: OutlineInputBorder(),
+                    hintText: 'Nombre d\'années pour les graphiques, ROI et tableau récapitulatif',
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Requis';
+                    final val = int.tryParse(value);
+                    if (val == null || val < 1 || val > 30) return 'Nombre entre 1 et 30';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                
+                // Energy cost annual increase
+                TextFormField(
+                  controller: pourcentageAugmentationEnergieController,
+                  decoration: const InputDecoration(
+                    labelText: 'Hausse annuelle du coût de l\'énergie',
+                    suffixText: '%',
+                    border: OutlineInputBorder(),
+                    hintText: 'Pourcentage d\'augmentation annuelle du coût de l\'énergie',
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Requis';
+                    final val = double.tryParse(value.replaceAll(',', '.'));
+                    if (val == null || val < 0) return 'Nombre valide requis';
+                    return null;
+                  },
+                ),
                 const SizedBox(height: 8),
-                const Text('⚠️ Ces paramètres affectent les calculs de projection sur 10 ans.', 
+                const Text('⚠️ Ces paramètres affectent les calculs de projection.', 
                     style: TextStyle(color: Colors.orange, fontSize: 12)),
               ],
             ),
@@ -120,6 +160,8 @@ class SettingsDialog {
                 settings.maxAnneesPerteRendement = int.tryParse(maxAnneesController.text) ?? settings.maxAnneesPerteRendement;
                 settings.coutEnergieDefault = double.tryParse(coutEnergieController.text.replaceAll(',', '.')) ?? settings.coutEnergieDefault;
                 settings.perteRendementDefault = double.tryParse(perteRendementController.text.replaceAll(',', '.')) ?? settings.perteRendementDefault;
+                settings.dureeEtudeAnnee = int.tryParse(dureeEtudeController.text) ?? settings.dureeEtudeAnnee;
+                settings.pourcentageAugmentationEnergieDefault = double.tryParse(pourcentageAugmentationEnergieController.text.replaceAll(',', '.')) ?? settings.pourcentageAugmentationEnergieDefault;
                 
                 Navigator.pop(context);
                 // Call the callback if provided
