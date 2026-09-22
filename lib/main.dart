@@ -37,10 +37,8 @@ Future<void> main() async {
   };
 
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-    // ignore: avoid_print
-    print('Uncaught async error: $error');
-    // ignore: avoid_print
-    print(stack);
+    debugPrint('Uncaught async error: $error');
+    debugPrint('$stack');
     return true; // handled
   };
 

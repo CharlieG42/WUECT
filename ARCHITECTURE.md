@@ -257,6 +257,13 @@ lib/
 | 18/09/2026 | `resultat_screen.dart` | **Scaling automatique** des coûts sur 10 ans (même logique que consommation) | 618-665 |
 | 18/09/2026 | `resultat_screen.dart` | **Padding des labels Y** : écart de 8px pour meilleure lisibilité | 178-199 |
 | 18/09/2026 | `resultat_screen.dart` | **Origine Y à 0** pour graphique consommation (`forceMinYToZero`) | 103-142 |
+| 22/09/2026 | `resultat_screen.dart` | **Correction double comptage investissement** : suppression de l'ajout manuel de l'investissement dans `_coutsNouveau[0]` (lignes 505-509 supprimées) qui causait un doublement avec le calcul cumulatif | - |
+| 22/09/2026 | `resultat_screen.dart` + `simple_line_chart.dart` | **Ajout ligne verte économies** sur graphique coût : calcul des économies cumulatives (ancien - nouveau) avec support des valeurs négatives, incluant les investissements | - |
+| 22/09/2026 | `resultat_screen.dart` | **Correction tableau économies** : inclusion des investissements dans le calcul des économies cumulées (tableau et graphique cohérents) | - |
+| 22/09/2026 | `resultat_screen.dart` | **Ajout colonnes Investissement** : 2 colonnes "Investissement Ancien (EUR)" et "Investissement Nouveau (EUR)" dans le tableau comparatif pour rappeler les coûts d'investissement respectifs | - |
+| 22/09/2026 | `simple_line_chart.dart` + `resultat_screen.dart` | **Ligne Y=0 en pointillé** : ajout d'une ligne horizontale pointillée à Y=0 pour faciliter la lecture du seuil de rentabilité | - |
+| 22/09/2026 | `resultat_screen.dart` | **Axe X : numéros d'années** : affichage de 1, 2, 3... au lieu de 2026, 2027, 2028... sur les 2 graphiques pour faciliter la lecture | - |
+| 22/09/2026 | `resultat_screen.dart` | **Tableau : numéros d'années** : première colonne affichant 1, 2, 3... au lieu de 2026, 2027... + investissements affichés uniquement en année 1 | - |
 
 ---
 

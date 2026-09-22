@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:wu_ect/utils/app_config.dart';
@@ -34,8 +35,7 @@ Future<void> initHive() async {
   } catch (e, st) {
     // Rethrow after printing to help debugging during development
     // In production you may want to handle this more gracefully.
-    // ignore: avoid_print
-    print('Failed to initialize Hive at path: $hivePath\n$e\n$st');
+    debugPrint('Failed to initialize Hive at path: $hivePath\n$e\n$st');
     rethrow;
   }
 }

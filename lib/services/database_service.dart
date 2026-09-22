@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -57,8 +58,7 @@ class DatabaseService {
       // Si l'ouverture échoue (verrous OneDrive, permissions...), basculer
       // vers un répertoire local d'application pour éviter les locks.
       // Log pour diagnostic
-      // ignore: avoid_print
-      print('DatabaseService.init: failed to open Hive boxes: $e');
+      debugPrint('DatabaseService.init: failed to open Hive boxes: $e');
       // Tentative de fermeture propre avant de réinitialiser
       try {
         await Hive.close();
@@ -79,8 +79,7 @@ class DatabaseService {
       instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
       instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
       instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
-      // ignore: avoid_print
-      print('DatabaseService.init: switched to fallback Hive directory: $fallbackDir');
+      debugPrint('DatabaseService.init: switched to fallback Hive directory: $fallbackDir');
     }
   }
 

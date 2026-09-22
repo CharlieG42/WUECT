@@ -15,6 +15,7 @@ class SettingsService {
   static const String _keyUseDefaultParams = 'use_default_params';
   static const String _keyDureeEtudeAnnee = 'duree_etude_annee';
   static const String _keyPourcentageAugmentationEnergieDefault = 'pourcentage_augmentation_energie_default';
+  static const String _keyPdfExportDirectory = 'pdf_export_directory';
   
   // Box Hive
   late final Box _settingsBox;
@@ -26,6 +27,7 @@ class SettingsService {
   bool _useDefaultParams = false;
   int _dureeEtudeAnnee = 10;
   double _pourcentageAugmentationEnergieDefault = 5.0;
+  String? _pdfExportDirectory = null;
   
   SettingsService._init();
   
@@ -43,6 +45,7 @@ class SettingsService {
     _useDefaultParams = _settingsBox.get(_keyUseDefaultParams, defaultValue: false);
     _dureeEtudeAnnee = _settingsBox.get(_keyDureeEtudeAnnee, defaultValue: 10);
     _pourcentageAugmentationEnergieDefault = _settingsBox.get(_keyPourcentageAugmentationEnergieDefault, defaultValue: 5.0);
+    _pdfExportDirectory = _settingsBox.get(_keyPdfExportDirectory);
   }
   
   /// Sauvegarde des paramètres dans Hive
@@ -53,6 +56,9 @@ class SettingsService {
     await _settingsBox.put(_keyUseDefaultParams, _useDefaultParams);
     await _settingsBox.put(_keyDureeEtudeAnnee, _dureeEtudeAnnee);
     await _settingsBox.put(_keyPourcentageAugmentationEnergieDefault, _pourcentageAugmentationEnergieDefault);
+    if (_pdfExportDirectory != null) {
+      await _settingsBox.put(_keyPdfExportDirectory, _pdfExportDirectory);
+    }
   }
   
   // Getters
@@ -62,6 +68,7 @@ class SettingsService {
   bool get useDefaultParams => _useDefaultParams;
   int get dureeEtudeAnnee => _dureeEtudeAnnee;
   double get pourcentageAugmentationEnergieDefault => _pourcentageAugmentationEnergieDefault;
+  String? get pdfExportDirectory => _pdfExportDirectory;
   
   // Setters (avec sauvegarde automatique)
   set maxAnneesPerteRendement(int value) {
@@ -94,6 +101,15 @@ class SettingsService {
     _settingsBox.put(_keyPourcentageAugmentationEnergieDefault, value);
   }
   
+  set pdfExportDirectory(String? value) {
+    _pdfExportDirectory = value;
+    if (value != null) {
+      _settingsBox.put(_keyPdfExportDirectory, value);
+    } else {
+      _settingsBox.delete(_keyPdfExportDirectory);
+    }
+  }
+  
   /// Sauvegarde toutes les paramètres
   Future<void> saveAllSettings({
     int? maxAnneesPerteRendement,
@@ -102,6 +118,7 @@ class SettingsService {
     bool? useDefaultParams,
     int? dureeEtudeAnnee,
     double? pourcentageAugmentationEnergieDefault,
+    String? pdfExportDirectory,
   }) async {
     if (maxAnneesPerteRendement != null) {
       _maxAnneesPerteRendement = maxAnneesPerteRendement;
@@ -121,6 +138,9 @@ class SettingsService {
     if (pourcentageAugmentationEnergieDefault != null) {
       _pourcentageAugmentationEnergieDefault = pourcentageAugmentationEnergieDefault;
     }
+    if (pdfExportDirectory != null) {
+      _pdfExportDirectory = pdfExportDirectory;
+    }
     await _saveSettings();
   }
   
@@ -132,6 +152,7 @@ class SettingsService {
     _useDefaultParams = false;
     _dureeEtudeAnnee = 10;
     _pourcentageAugmentationEnergieDefault = 5.0;
+    _pdfExportDirectory = null;
     await _saveSettings();
   }
   

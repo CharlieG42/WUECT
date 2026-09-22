@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/settings_service.dart';
+
+// Import des icônes Material (déjà inclus dans material.dart, mais vérification)
 
 /// Widget utility for showing the application settings dialog
 /// This centralizes the settings UI to avoid code duplication
@@ -146,6 +149,40 @@ class SettingsDialog {
                 const SizedBox(height: 8),
                 const Text('⚠️ Ces paramètres affectent les calculs de projection.', 
                     style: TextStyle(color: Colors.orange, fontSize: 12)),
+                const Divider(height: 16),
+                
+                // Sélecteur de dossier pour l'export PDF
+                Row(
+                  children: [
+                    const Text('Dossier d\'export PDF:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        settings.pdfExportDirectory ?? 'Dossier Documents par défaut',
+                        style: const TextStyle(fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.folder_open, size: 20),
+                      tooltip: 'Choisir le dossier',
+                      onPressed: () async {
+                        final result = await FilePicker.platform.getDirectoryPath();
+                        if (result != null) {
+                          setDialogState(() => settings.pdfExportDirectory = result);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  icon: const Icon(Icons.delete_outline, size: 16),
+                  label: const Text('Réinitialiser au dossier par défaut', style: TextStyle(fontSize: 12)),
+                  onPressed: () {
+                    setDialogState(() => settings.pdfExportDirectory = null);
+                  },
+                ),
               ],
             ),
           ),

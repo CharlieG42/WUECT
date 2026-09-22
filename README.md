@@ -398,9 +398,6 @@ Pour chaque pompe, renseigner :
 - Année d'installation
 - Heures de fonctionnement par an
 - Coût d'investissement (€)
-### 4. Générer le build de production
-### 4. Générer le build de production
-### 4. Générer le build de production
 
 ### 5. Résultats et Comparatifs
 Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :
@@ -451,7 +448,6 @@ Une fois les 2 systèmes (Ancien + Nouveau) créés pour un projet :
 | sqflite | ^2.3.0 | Gestion de la base de données SQLite |
 | path_provider | ^2.1.1 | Accès aux chemins de fichiers |
 | path | ^1.8.3 | Manipulation des chemins |
-| fl_chart | ^0.63.0 | Création des graphiques |
 | intl | ^0.18.1 | Formatage international (dates, nombres) |
 | provider | ^6.1.1 | Gestion d'état (State Management) |
 | cupertino_icons | ^1.0.2 | Icônes iOS |

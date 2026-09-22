@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:ui' as ui;
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
+import '../../models/chart_point.dart';
 import '../../services/calcul_service.dart';
 import 'dart:math' as math;
 import 'package:wu_ect/utils/decimation.dart';
 import '../../services/database_service.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/settings_dialog.dart';
+import '../../widgets/simple_line_chart.dart';
 import 'package:intl/intl.dart';
 import '../../utils/error_handler.dart';
 import '../../utils/exportPDF.dart';
+import '../../services/settings_service.dart';
 import '../contact/contact_form_screen.dart';
 
 
@@ -56,11 +57,15 @@ class _ResultatScreenState extends State<ResultatScreen> {
   List<double> _consommationsNouveau = [];
   List<double> _coutsAncien = [];
   List<double> _coutsNouveau = [];
-  List<FlSpot> _spotsConsommationAncien = [];
-  List<FlSpot> _spotsConsommationNouveau = [];
-  List<FlSpot> _spotsCoutAncien = [];
-  List<FlSpot> _spotsCoutNouveau = [];
+  List<ChartPoint> _spotsConsommationAncien = [];
+  List<ChartPoint> _spotsConsommationNouveau = [];
+  List<ChartPoint> _spotsCoutAncien = [];
+  List<ChartPoint> _spotsCoutNouveau = [];
+  List<ChartPoint> _spotsEconomies = [];
   List<int> _annees = [];
+  List<double> _cumulativeAncien = [];
+  List<double> _cumulativeNouveau = [];
+  List<double> _economiesCumulees = [];
   Map<String, dynamic>? _roiData;
 
   List<Pompe> _pompesAncien = [];
@@ -123,13 +128,15 @@ class _ResultatScreenState extends State<ResultatScreen> {
   Widget _buildGraphiqueFromSpots(
     String title,
     String unite,
-    List<FlSpot> ancien,
-    List<FlSpot> nouveau,
+    List<ChartPoint> ancien,
+    List<ChartPoint> nouveau,
     Color colorAncien,
     Color colorNouveau,
     bool isCurrency, {
     bool forceMinYToZero = false,
     required String unit,
+    List<ChartPoint>? economies,
+    Color? colorEconomies,
   }) {
     if (ancien.isEmpty && nouveau.isEmpty) {
       return _buildPlaceholder(title);
@@ -137,24 +144,34 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
     const minX = 0.0;
     var maxX = math.max(
-      ancien.isNotEmpty ? ancien.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
-      nouveau.isNotEmpty ? nouveau.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
+      math.max(
+        ancien.isNotEmpty ? ancien.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
+        nouveau.isNotEmpty ? nouveau.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
+      ),
+      economies?.isNotEmpty == true ? economies!.map((s) => s.x).reduce((a, b) => a > b ? a : b) : 0.0,
     );
     var minY = math.min(
-      ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
-      nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
+      math.min(
+        ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
+        nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
+      ),
+      economies?.isNotEmpty == true ? economies!.map((s) => s.y).reduce((a, b) => a < b ? a : b) : 0.0,
     );
     var maxY = math.max(
-      ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
-      nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
+      math.max(
+        ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
+        nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
+      ),
+      economies?.isNotEmpty == true ? economies!.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0,
     );
 
-    // For cost charts, enforce Y starts at 0 and maxY is the maximum cumulative cost between series
+    // For cost charts, enforce maxY is the maximum cumulative cost between series
+    // but allow negative values for economies line
     if (isCurrency) {
       final maxAnc = ancien.isNotEmpty ? ancien.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0;
       final maxNouv = nouveau.isNotEmpty ? nouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0;
-      minY = 0.0;
-      maxY = math.max(maxAnc, maxNouv);
+      final maxEcon = economies?.isNotEmpty == true ? economies!.map((s) => s.y).reduce((a, b) => a > b ? a : b) : 0.0;
+      maxY = math.max(math.max(maxAnc, maxNouv), maxEcon);
       if (maxY <= 0) maxY = 1.0;
     }
     
@@ -171,8 +188,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
     String formatAxis(double v) => _formatNumber(v);
 
-    // Years for x-axis labels (use available years or numeric indices)
-    final xLabels = _annees.isNotEmpty ? _annees : List.generate((maxX - minX + 1).toInt(), (i) => i);
+    // Years for x-axis labels: use numeric indices (1, 2, 3,...) instead of absolute years
+    final xLabels = List.generate((maxX - minX + 1).toInt(), (i) => i + 1);
     final int xTickCount = xLabels.length;
     const int yTickCount = 10; // number of portions -> produces yTickCount+1 horizontal lines/labels
 
@@ -191,50 +208,75 @@ class _ResultatScreenState extends State<ResultatScreen> {
                     Row(children: [Container(width: 16, height: 8, color: colorAncien), const SizedBox(width: 6), const Text('Ancien')]),
                   const SizedBox(width: 12),
                   Row(children: [Container(width: 16, height: 8, color: colorNouveau), const SizedBox(width: 6), const Text('Nouveau')]),
+                  if (economies != null && colorEconomies != null) ...[
+                    const SizedBox(width: 12),
+                    Row(children: [Container(width: 16, height: 8, color: colorEconomies), const SizedBox(width: 6), const Text('Économies')]),
+                  ],
                 ])
               ],
             ),
             const SizedBox(height: 12),
+
+            // Unit label, kept OUTSIDE the 300px plot box so it doesn't eat
+            // into the vertical space the tick labels need to align with the grid.
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8, bottom: 4),
+                child: Text(unite, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ),
+            ),
 
             SizedBox(
               height: 300,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Y axis labels (min/max) - aligned to the right for better readability
+                  // Y axis labels - positioned with the EXACT same formula the
+                  // painter uses for the grid lines (dy = height * i / yTickCount),
+                  // then vertically centered on that line with FractionalTranslation
+                  // so real font metrics never throw the alignment off.
                   SizedBox(
-                      width: 80,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // Unit label on Y axis
-                            Text(unite, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: List.generate(yTickCount + 1, (i) {
-                                  final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
-                                  return Text(formatAxis(v), 
-                                      style: const TextStyle(fontSize: 12),
-                                      textAlign: TextAlign.right);
-                                }),
-                              ),
-                            ),
-                          ],
-                        ),
+                    width: 80,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final h = constraints.maxHeight;
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: List.generate(yTickCount + 1, (i) {
+                              final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
+                              final dy = h * i / yTickCount;
+                              return Positioned(
+                                top: dy,
+                                left: 0,
+                                right: 0,
+                                child: FractionalTranslation(
+                                  translation: const Offset(0, -0.5),
+                                  child: Text(
+                                    formatAxis(v),
+                                    style: const TextStyle(fontSize: 12),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                              );
+                            }),
+                          );
+                        },
                       ),
                     ),
+                  ),
 
                   // Chart area
                   Expanded(
-                    child: _SimpleLineChart(
+                    child: SimpleLineChart(
                       ancien: ancien,
                       nouveau: nouveau,
+                      economies: economies,
                       colorAncien: colorAncien,
                       colorNouveau: colorNouveau,
+                      colorEconomies: colorEconomies,
                       minX: minX,
                       maxX: maxX,
                       minY: minY,
@@ -250,27 +292,41 @@ class _ResultatScreenState extends State<ResultatScreen> {
             ),
 
             const SizedBox(height: 8),
-            // X axis labels: show every year evenly spaced with precise alignment
-            // Each label is positioned exactly under its corresponding vertical grid line
+            // X axis labels: positioned with the EXACT same formula the painter
+            // uses for the vertical grid lines (dx = width * i / (xTickCount - 1)),
+            // then horizontally centered on that line with FractionalTranslation.
             Row(
               children: [
                 const SizedBox(width: 80), // align with Y labels column
                 Expanded(
                   child: xTickCount <= 1
                       ? Center(child: Text('${xLabels.first}', style: const TextStyle(fontSize: 11)))
-                      : Row(
-                          children: List.generate(xTickCount, (i) {
-                            final lbl = xLabels.length > i ? xLabels[i] : (minX + (maxX - minX) * (i / (xTickCount - 1))).toInt();
-                            return Expanded(
-                              child: Center(
-                                child: Text('$lbl', 
-                                    style: const TextStyle(fontSize: 11),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            );
-                          }),
+                      : SizedBox(
+                          height: 16,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final w = constraints.maxWidth;
+                              return Stack(
+                                clipBehavior: Clip.none,
+                                children: List.generate(xTickCount, (i) {
+                                  final lbl = xLabels.length > i ? xLabels[i] : (minX + (maxX - minX) * (i / (xTickCount - 1))).toInt();
+                                  final dx = xTickCount > 1 ? (i / (xTickCount - 1)) * w : w / 2;
+                                  return Positioned(
+                                    top: 0,
+                                    left: dx,
+                                    child: FractionalTranslation(
+                                      translation: const Offset(-0.5, 0),
+                                      child: Text('$lbl',
+                                          style: const TextStyle(fontSize: 11),
+                                          textAlign: TextAlign.center,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                    ),
+                                  );
+                                }),
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],
@@ -444,18 +500,6 @@ class _ResultatScreenState extends State<ResultatScreen> {
         _coutsNouveauDetailParAnnee.add(resultNouveau['detail'] as String);
       }
 
-      // ========================================================================
-      // CALCUL 3: Intégration de l'investissement initial
-      // ========================================================================
-      // Le coût d'investissement du système nouveau est ajouté à la première année
-      // pour refléter le coût total initial (investissement + première année d'exploitation)
-      // Intégrer le montant d'investissement dans la première année du coût (pour le système nouveau)
-      try {
-        if (_systemeNouveau != null && _coutsNouveau.isNotEmpty) {
-          _coutsNouveau[0] = _coutsNouveau[0] + (_systemeNouveau!.coutInvestissementTotal);
-        }
-      } catch (_) {}
-
       try {
         // ========================================================================
         // CALCUL 4: Consommations et Coûts cumulatifs pour les graphiques
@@ -497,6 +541,18 @@ class _ResultatScreenState extends State<ResultatScreen> {
           cumulativeNouveau.add(investNouv + sumNouv);
         }
 
+        // Calcul des économies cumulatives (différence des coûts TOTAUX incluant investissement)
+        // Pour être cohérent avec le tableau qui inclut maintenant les investissements
+        final economiesCumulees = <double>[];
+        final maxLength = math.max(cumulativeAncien.length, cumulativeNouveau.length);
+        for (var i = 0; i < maxLength; i++) {
+          // Les économies cumulatives = coût total ancien - coût total nouveau
+          // où coût total = investissement + coûts énergétiques cumulés
+          final costAnc = i < cumulativeAncien.length ? cumulativeAncien[i] : (i > 0 ? cumulativeAncien.last : 0.0);
+          final costNouv = i < cumulativeNouveau.length ? cumulativeNouveau[i] : (i > 0 ? cumulativeNouveau.last : 0.0);
+          economiesCumulees.add(costAnc - costNouv);
+        }
+
         // ========================================================================
         // CALCUL 5: Préparation des points pour les graphiques (Downsampling)
         // ========================================================================
@@ -507,12 +563,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
         final spotsNouveau = await compute(computeDownsampleSerialized, {'values': consommationsNouveauCumulees, 'maxPoints': 500});
         final spotsCoutAncien = await compute(computeDownsampleSerialized, {'values': cumulativeAncien, 'maxPoints': 500});
         final spotsCoutNouveau = await compute(computeDownsampleSerialized, {'values': cumulativeNouveau, 'maxPoints': 500});
+        final spotsEconomies = await compute(computeDownsampleSerialized, {'values': economiesCumulees, 'maxPoints': 500});
 
-        // Conversion des points downsamplés en FlSpot pour fl_chart
-        _spotsConsommationAncien = spotsAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
-        _spotsConsommationNouveau = spotsNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
-        _spotsCoutAncien = spotsCoutAncien.map((m) => FlSpot(m['x']!, m['y']!)).toList();
-        _spotsCoutNouveau = spotsCoutNouveau.map((m) => FlSpot(m['x']!, m['y']!)).toList();
+        // Conversion des points downsamplés en ChartPoint
+        _spotsConsommationAncien = spotsAncien.map((m) => ChartPoint(m['x']!, m['y']!)).toList();
+        _spotsConsommationNouveau = spotsNouveau.map((m) => ChartPoint(m['x']!, m['y']!)).toList();
+        _spotsCoutAncien = spotsCoutAncien.map((m) => ChartPoint(m['x']!, m['y']!)).toList();
+        _spotsCoutNouveau = spotsCoutNouveau.map((m) => ChartPoint(m['x']!, m['y']!)).toList();
+        _spotsEconomies = spotsEconomies.map((m) => ChartPoint(m['x']!, m['y']!)).toList();
       } catch (_) {
         // Consommations cumulées pour le cas sans downsampling
         final consommationsAncienCumulees = <double>[];
@@ -529,25 +587,38 @@ class _ResultatScreenState extends State<ResultatScreen> {
           consommationsNouveauCumulees.add(sumConsNouv);
         }
         
-        _spotsConsommationAncien = List.generate(consommationsAncienCumulees.length, (i) => FlSpot(i.toDouble(), consommationsAncienCumulees[i]));
-        _spotsConsommationNouveau = List.generate(consommationsNouveauCumulees.length, (i) => FlSpot(i.toDouble(), consommationsNouveauCumulees[i]));
+        _spotsConsommationAncien = List.generate(consommationsAncienCumulees.length, (i) => ChartPoint(i.toDouble(), consommationsAncienCumulees[i]));
+        _spotsConsommationNouveau = List.generate(consommationsNouveauCumulees.length, (i) => ChartPoint(i.toDouble(), consommationsNouveauCumulees[i]));
 
-        final cumulativeAncien = <double>[];
+        _cumulativeAncien = <double>[];
         double sumAnc = 0.0;
         for (var i = 0; i < _coutsAncien.length; i++) {
           sumAnc += _coutsAncien[i];
-          cumulativeAncien.add((_systemeAncien?.coutInvestissementTotal ?? 0.0) + sumAnc);
+          _cumulativeAncien.add((_systemeAncien?.coutInvestissementTotal ?? 0.0) + sumAnc);
         }
 
-        final cumulativeNouveau = <double>[];
+        _cumulativeNouveau = <double>[];
         double sumNouv = 0.0;
         for (var i = 0; i < _coutsNouveau.length; i++) {
           sumNouv += _coutsNouveau[i];
-          cumulativeNouveau.add((_systemeNouveau?.coutInvestissementTotal ?? 0.0) + sumNouv);
+          _cumulativeNouveau.add((_systemeNouveau?.coutInvestissementTotal ?? 0.0) + sumNouv);
         }
 
-        _spotsCoutAncien = List.generate(cumulativeAncien.length, (i) => FlSpot(i.toDouble(), cumulativeAncien[i]));
-        _spotsCoutNouveau = List.generate(cumulativeNouveau.length, (i) => FlSpot(i.toDouble(), cumulativeNouveau[i]));
+        // Calcul des économies cumulatives (différence des coûts TOTAUX incluant investissement)
+        // Pour être cohérent avec le tableau qui inclut maintenant les investissements
+        _economiesCumulees = <double>[];
+        final maxLength = math.max(_cumulativeAncien.length, _cumulativeNouveau.length);
+        for (var i = 0; i < maxLength; i++) {
+          // Les économies cumulatives = coût total ancien - coût total nouveau
+          // où coût total = investissement + coûts énergétiques cumulés
+          final costAnc = i < _cumulativeAncien.length ? _cumulativeAncien[i] : (i > 0 ? _cumulativeAncien.last : 0.0);
+          final costNouv = i < _cumulativeNouveau.length ? _cumulativeNouveau[i] : (i > 0 ? _cumulativeNouveau.last : 0.0);
+          _economiesCumulees.add(costAnc - costNouv);
+        }
+
+        _spotsCoutAncien = List.generate(_cumulativeAncien.length, (i) => ChartPoint(i.toDouble(), _cumulativeAncien[i]));
+        _spotsCoutNouveau = List.generate(_cumulativeNouveau.length, (i) => ChartPoint(i.toDouble(), _cumulativeNouveau[i]));
+        _spotsEconomies = List.generate(_economiesCumulees.length, (i) => ChartPoint(i.toDouble(), _economiesCumulees[i]));
       }
 
       final debugBuf = StringBuffer();
@@ -720,13 +791,13 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final unit = scaleInfo['unit'] as String;
     
     // Create scaled spots
-    final scaledAncien = _spotsConsommationAncien.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
-    final scaledNouveau = _spotsConsommationNouveau.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    final scaledAncien = _spotsConsommationAncien.map((s) => ChartPoint(s.x, s.y / scaleFactor)).toList();
+    final scaledNouveau = _spotsConsommationNouveau.map((s) => ChartPoint(s.x, s.y / scaleFactor)).toList();
     
     return RepaintBoundary(
       key: _consoGraphKey,
       child: _buildGraphiqueFromSpots(
-        'Consommation Énergétique sur $_dureeEtude ans',
+        'Consommation Énergétique sur $_dureeEtude ans ($unit)',
         unit,
         scaledAncien,
         scaledNouveau,
@@ -749,7 +820,10 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final maxNouveau = _spotsCoutNouveau.isNotEmpty 
         ? _spotsCoutNouveau.map((s) => s.y).reduce((a, b) => a > b ? a : b) 
         : 0.0;
-    final maxValue = math.max(maxAncien, maxNouveau);
+    final maxEconomies = _spotsEconomies.isNotEmpty
+        ? _spotsEconomies.map((s) => s.y).reduce((a, b) => a > b ? a : b)
+        : 0.0;
+    final maxValue = math.max(math.max(maxAncien, maxNouveau), maxEconomies);
     
     // Get scale factor and unit
     final scaleInfo = _getCoutScale(maxValue);
@@ -757,13 +831,16 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final unit = scaleInfo['unit'] as String;
     
     // Create scaled spots
-    final scaledAncien = _spotsCoutAncien.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
-    final scaledNouveau = _spotsCoutNouveau.map((s) => FlSpot(s.x, s.y / scaleFactor)).toList();
+    final scaledAncien = _spotsCoutAncien.map((s) => ChartPoint(s.x, s.y / scaleFactor)).toList();
+    final scaledNouveau = _spotsCoutNouveau.map((s) => ChartPoint(s.x, s.y / scaleFactor)).toList();
+    final scaledEconomies = _spotsEconomies.isNotEmpty 
+        ? _spotsEconomies.map((s) => ChartPoint(s.x, s.y / scaleFactor)).toList()
+        : null;
     
     return RepaintBoundary(
       key: _coutGraphKey,
       child: _buildGraphiqueFromSpots(
-        'Coût sur $_dureeEtude ans',
+        'Coût sur $_dureeEtude ans ($unit)',
         unit,
         scaledAncien,
         scaledNouveau,
@@ -771,6 +848,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
         Colors.blue,
         true,
         unit: unit,
+        economies: scaledEconomies,
+        colorEconomies: scaledEconomies != null ? Colors.green : null,
       ),
     );
   }
@@ -1201,38 +1280,42 @@ class _ResultatScreenState extends State<ResultatScreen> {
             child: DataTable(
               columnSpacing: 12,
               columns: const [
-                DataColumn(label: Text('Année')),
-                DataColumn(label: Text('P1 Ancien\n(kW)')),
+                DataColumn(label: Text('Année', textAlign: TextAlign.center)),
+                DataColumn(label: Text('P1 Ancien\n(kW)', textAlign: TextAlign.center)),
                 DataColumn(label: Text('Détail P1\nAncien', textAlign: TextAlign.center)),
-                DataColumn(label: Text('μ Ancien\n(%)')),
-                DataColumn(label: Text('P1 Nouveau\n(kW)')),
+                DataColumn(label: Text('μ Ancien\n(%)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('P1 Nouveau\n(kW)', textAlign: TextAlign.center)),
                 DataColumn(label: Text('Détail P1\nNouveau', textAlign: TextAlign.center)),
-                DataColumn(label: Text('μ Nouveau\n(%)')),
-                DataColumn(label: Text('Heures Ancien\n(h)')),
-                DataColumn(label: Text('Heures Nouveau\n(h)')),
-                DataColumn(label: Text('Conso Ancien\n(kWh)')),
-                DataColumn(label: Text('Conso Nouveau\n(kWh)')),
-                DataColumn(label: Text('Économie\n(kWh)')),
-                DataColumn(label: Text('Coût Ancien\n(EUR)')),
+                DataColumn(label: Text('μ Nouveau\n(%)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Heures Ancien\n(h)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Heures Nouveau\n(h)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Conso Ancien\n(kWh)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Conso Nouveau\n(kWh)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Économie\n(kWh)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Coût Ancien\n(EUR)', textAlign: TextAlign.center)),
                 DataColumn(label: Text('Détail Coût\nAncien', textAlign: TextAlign.center)),
-                DataColumn(label: Text('Coût Nouveau\n(EUR)')),
+                DataColumn(label: Text('Coût Nouveau\n(EUR)', textAlign: TextAlign.center)),
                 DataColumn(label: Text('Détail Coût\nNouveau', textAlign: TextAlign.center)),
-                DataColumn(label: Text('Économie\nEUR')),
-                DataColumn(label: Text('Éco. cumulée\n(kWh)')),
-                DataColumn(label: Text('Éco. cumulée\n(EUR)')),
+                DataColumn(label: Text('Investissement\nAncien (EUR)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Investissement\nNouveau (EUR)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Économie\nEUR', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Éco. Cumulée\n(kWh)', textAlign: TextAlign.center)),
+                DataColumn(label: Text('Éco. Cumulée\n(EUR)', textAlign: TextAlign.center)),
               ],
               rows: List.generate(_dureeEtude, (i) {
                 final economieKWh = _consommationsAncien[i] - _consommationsNouveau[i];
-                final economieEuro = _coutsAncien[i] - _coutsNouveau[i];
                 
-                // Calculate cumulative savings
+                // Calcul des économies annuelles et cumulées (incluant les investissements)
                 final cumuleKWh = _consommationsAncien.take(i+1).fold(0.0, (sum, val) => sum + val) - 
                                   _consommationsNouveau.take(i+1).fold(0.0, (sum, val) => sum + val);
-                final cumuleEuro = _coutsAncien.take(i+1).fold(0.0, (sum, val) => sum + val) - 
-                                   _coutsNouveau.take(i+1).fold(0.0, (sum, val) => sum + val);
+                final investAnc = _systemeAncien?.coutInvestissementTotal ?? 0.0;
+                final investNouv = _systemeNouveau?.coutInvestissementTotal ?? 0.0;
+                final economieEuro = (i == 0 ? (investAnc - investNouv) : 0.0) + (_coutsAncien[i] - _coutsNouveau[i]);
+                final cumuleEuro = (investAnc + _coutsAncien.take(i+1).fold(0.0, (sum, val) => sum + val)) -
+                                   (investNouv + _coutsNouveau.take(i+1).fold(0.0, (sum, val) => sum + val));
                 
                 return DataRow(cells: [
-                  DataCell(Text('${_annees[i]}')),
+                  DataCell(Text('${i + 1}')),
                   DataCell(Text(_formatNumber(_p1AncienParAnnee[i]))),
                   DataCell(Tooltip(
                     message: _p1AncienDetailParAnnee[i],
@@ -1260,6 +1343,9 @@ class _ResultatScreenState extends State<ResultatScreen> {
                     message: _coutsNouveauDetailParAnnee[i],
                     child: const Icon(Icons.info_outline, size: 18, color: Colors.blue),
                   )),
+                  // Investissements (uniquement année 1)
+                  DataCell(Text(i == 0 ? formatUnit(investAnc) : '')),
+                  DataCell(Text(i == 0 ? formatUnit(investNouv) : '')),
                   DataCell(Text(formatUnit(economieEuro), style: TextStyle(color: economieEuro >= 0 ? Colors.green : Colors.red))),
                   DataCell(Text(formatUnit(cumuleKWh), style: TextStyle(color: cumuleKWh >= 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold))),
                   DataCell(Text(formatUnit(cumuleEuro), style: TextStyle(color: cumuleEuro >= 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold))),
@@ -1321,7 +1407,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
   // Methodes d'export PDF
   Future<void> _exportComparatifPdf() async {
-    if (_projet == null || _roiData == null) return;
+    if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
 
     // Capture des graphiques
     final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
@@ -1331,17 +1417,17 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final comparatifData = {
       'dataAncien': {
         'totalConsommation': _energieAncien,
-        'totalCout': _roiData!['coutAncienTotal'] as double? ?? 0,
+        'totalCout': _roiData?['coutAncienTotal'] as double? ?? 0,
         'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
       },
       'dataNouveau': {
         'totalConsommation': _energieNouveau,
-        'totalCout': _roiData!['coutNouveauTotal'] as double? ?? 0,
+        'totalCout': _roiData?['coutNouveauTotal'] as double? ?? 0,
         'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
       },
       'economieData': {
         'economieConsommation': _energieAncien - _energieNouveau,
-        'economieCout': (_roiData!['coutAncienTotal'] as double? ?? 0) - (_roiData!['coutNouveauTotal'] as double? ?? 0),
+        'economieCout': (_roiData?['coutAncienTotal'] as double? ?? 0) - (_roiData?['coutNouveauTotal'] as double? ?? 0),
         'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
       },
       'annualData': {
@@ -1350,6 +1436,8 @@ class _ResultatScreenState extends State<ResultatScreen> {
         'consommationsNouveau': _consommationsNouveau,
         'coutsAncien': _coutsAncien,
         'coutsNouveau': _coutsNouveau,
+        'economiesKWh': List.generate(_dureeEtude, (i) => i < _consommationsAncien.length && i < _consommationsNouveau.length ? _consommationsAncien[i] - _consommationsNouveau[i] : 0),
+        'economiesEuro': List.generate(_dureeEtude, (i) => i < _coutsAncien.length && i < _coutsNouveau.length ? _coutsAncien[i] - _coutsNouveau[i] : 0),
       },
     };
 
@@ -1369,7 +1457,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
   }
 
   Future<void> _saveComparatifPdfLocally() async {
-    if (_projet == null || _roiData == null) return;
+    if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
 
     // Capture des graphiques
     final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
@@ -1379,17 +1467,17 @@ class _ResultatScreenState extends State<ResultatScreen> {
     final comparatifData = {
       'dataAncien': {
         'totalConsommation': _energieAncien,
-        'totalCout': _roiData!['coutAncienTotal'] as double? ?? 0,
+        'totalCout': _roiData?['coutAncienTotal'] as double? ?? 0,
         'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
       },
       'dataNouveau': {
         'totalConsommation': _energieNouveau,
-        'totalCout': _roiData!['coutNouveauTotal'] as double? ?? 0,
+        'totalCout': _roiData?['coutNouveauTotal'] as double? ?? 0,
         'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
       },
       'economieData': {
         'economieConsommation': _energieAncien - _energieNouveau,
-        'economieCout': (_roiData!['coutAncienTotal'] as double? ?? 0) - (_roiData!['coutNouveauTotal'] as double? ?? 0),
+        'economieCout': (_roiData?['coutAncienTotal'] as double? ?? 0) - (_roiData?['coutNouveauTotal'] as double? ?? 0),
         'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
       },
       'annualData': {
@@ -1398,9 +1486,12 @@ class _ResultatScreenState extends State<ResultatScreen> {
         'consommationsNouveau': _consommationsNouveau,
         'coutsAncien': _coutsAncien,
         'coutsNouveau': _coutsNouveau,
+        'economiesKWh': List.generate(_dureeEtude, (i) => i < _consommationsAncien.length && i < _consommationsNouveau.length ? _consommationsAncien[i] - _consommationsNouveau[i] : 0),
+        'economiesEuro': List.generate(_dureeEtude, (i) => i < _coutsAncien.length && i < _coutsNouveau.length ? _coutsAncien[i] - _coutsNouveau[i] : 0),
       },
     };
 
+    final settings = SettingsService.instance;
     await PdfExportService.saveFullReportPdfLocally(
       context: context,
       projet: _projet!,
@@ -1413,6 +1504,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       comparatifData: comparatifData,
       graphiqueConsommationImage: consoImage,
       graphiqueCoutImage: coutImage,
+      customOutputDirectory: settings.pdfExportDirectory,
     );
   }
 
@@ -1425,205 +1517,6 @@ class _ResultatScreenState extends State<ResultatScreen> {
   }
 }
 
-class _SimpleLineChart extends StatefulWidget {
-  final List<FlSpot> ancien;
-  final List<FlSpot> nouveau;
-  final Color colorAncien;
-  final Color colorNouveau;
-  final double minX;
-  final double maxX;
-  final double minY;
-  final double maxY;
-  final int xTickCount;
-  final int yTickCount;
-  final bool isCurrency;
-  final String unit;
-
-  const _SimpleLineChart({Key? key, required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, required this.isCurrency, required this.unit}) : super(key: key);
-
-  @override
-  State<_SimpleLineChart> createState() => _SimpleLineChartState();
-}
-
-class _SimpleLineChartState extends State<_SimpleLineChart> {
-  double? _hoverFraction; // 0..1 over width
-
-  void _updateHover(Offset localPosition, double width) {
-    final frac = (localPosition.dx / width).clamp(0.0, 1.0);
-    setState(() => _hoverFraction = frac);
-  }
-
-  void _clearHover() => setState(() => _hoverFraction = null);
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final w = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanDown: (e) => _updateHover(e.localPosition, w),
-        onPanUpdate: (e) => _updateHover(e.localPosition, w),
-        onPanEnd: (_) => _clearHover(),
-        child: MouseRegion(
-          onHover: (e) => _updateHover(e.localPosition, w),
-          onExit: (_) => _clearHover(),
-          child: CustomPaint(
-            painter: _SimpleLinePainter(
-              ancien: widget.ancien,
-              nouveau: widget.nouveau,
-              colorAncien: widget.colorAncien,
-              colorNouveau: widget.colorNouveau,
-              minX: widget.minX,
-              maxX: widget.maxX,
-              minY: widget.minY,
-              maxY: widget.maxY,
-              xTickCount: widget.xTickCount,
-              yTickCount: widget.yTickCount,
-              hoverFraction: _hoverFraction,
-              isCurrency: widget.isCurrency,
-              unit: widget.unit,
-            ),
-            size: Size.infinite,
-          ),
-        ),
-      );
-    });
-  }
-}
-
-class _SimpleLinePainter extends CustomPainter {
-  final List<FlSpot> ancien;
-  final List<FlSpot> nouveau;
-  final Color colorAncien;
-  final Color colorNouveau;
-  final double minX;
-  final double maxX;
-  final double minY;
-  final double maxY;
-  final int xTickCount;
-  final int yTickCount;
-  final double? hoverFraction; // 0..1 or null
-  final bool isCurrency;
-  final String unit;
-
-  _SimpleLinePainter({required this.ancien, required this.nouveau, required this.colorAncien, required this.colorNouveau, required this.minX, required this.maxX, required this.minY, required this.maxY, required this.xTickCount, required this.yTickCount, this.hoverFraction, required this.isCurrency, required this.unit});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintAnc = Paint()..color = colorAncien..style = PaintingStyle.stroke..strokeWidth = 2.0..isAntiAlias = true;
-    final paintNouv = Paint()..color = colorNouveau..style = PaintingStyle.stroke..strokeWidth = 2.0..isAntiAlias = true;
-    final paintGrid = Paint()..color = Colors.grey.withValues(alpha: 0.25)..style = PaintingStyle.stroke..strokeWidth = 1.0;
-
-    Offset toOffset(FlSpot s) {
-      final dx = (s.x - minX) / (maxX - minX) * size.width;
-      final dy = size.height - (s.y - minY) / (maxY - minY) * size.height;
-      return Offset(dx.clamp(0.0, size.width), dy.clamp(0.0, size.height));
-    }
-
-    // Draw hover cursor if available
-    if (hoverFraction != null) {
-      final hoverX = minX + (maxX - minX) * hoverFraction!;
-      final dx = (hoverFraction! * size.width).clamp(0.0, size.width);
-      final paintCursor = Paint()..color = Colors.black.withValues(alpha: 0.6)..strokeWidth = 1.0;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paintCursor);
-
-      // Draw markers at nearest points on each series
-      FlSpot? nearestAnc;
-      FlSpot? nearestNouv;
-      double bestAnc = double.infinity;
-      double bestNouv = double.infinity;
-      for (var s in ancien) {
-        final d = (s.x - hoverX).abs();
-        if (d < bestAnc) {
-          bestAnc = d;
-          nearestAnc = s;
-        }
-      }
-      for (var s in nouveau) {
-        final d = (s.x - hoverX).abs();
-        if (d < bestNouv) {
-          bestNouv = d;
-          nearestNouv = s;
-        }
-      }
-      if (nearestAnc != null) {
-        final o = toOffset(nearestAnc);
-        final p = Paint()..color = colorAncien..style = PaintingStyle.fill;
-        canvas.drawCircle(o, 4.0, p);
-        // horizontal line
-        final paintH = Paint()..color = colorAncien.withValues(alpha: 0.2)..strokeWidth = 1.0;
-        canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
-        // tooltip
-        final fmt = isCurrency ? NumberFormat.currency(symbol: '', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
-        final text = '${fmt.format(nearestAnc.y)} $unit';
-        final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
-        tp.layout();
-        final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
-        final back = Paint()..color = colorAncien.withValues(alpha: 0.9);
-        canvas.drawRRect(rect, back);
-        tp.paint(canvas, Offset(rect.left + 4, rect.top + 2));
-      }
-      if (nearestNouv != null) {
-        final o = toOffset(nearestNouv);
-        final p = Paint()..color = colorNouveau..style = PaintingStyle.fill;
-        canvas.drawCircle(o, 4.0, p);
-        final paintH = Paint()..color = colorNouveau.withValues(alpha: 0.2)..strokeWidth = 1.0;
-        canvas.drawLine(Offset(0, o.dy), Offset(size.width, o.dy), paintH);
-        final fmt = isCurrency ? NumberFormat.currency(symbol: '', decimalDigits: 2, locale: 'fr_FR') : NumberFormat('#,##0.00', 'fr_FR');
-        final text = '${fmt.format(nearestNouv.y)} $unit';
-        final tp = TextPainter(text: TextSpan(text: text, style: const TextStyle(color: Colors.white, fontSize: 11)), textDirection: ui.TextDirection.ltr);
-        tp.layout();
-        final rect = RRect.fromRectAndRadius(Rect.fromLTWH((o.dx + 6).clamp(0.0, size.width - tp.width - 8), (o.dy - tp.height - 8).clamp(0.0, size.height - tp.height), tp.width + 8, tp.height + 4), const Radius.circular(4));
-        final back = Paint()..color = colorNouveau.withValues(alpha: 0.9);
-        canvas.drawRRect(rect, back);
-        tp.paint(canvas, Offset(rect.left + 4, rect.top + 2));
-      }
-    }
-
-    // Draw grid lines based on tick counts
-    final int vCount = xTickCount > 1 ? xTickCount : 5;
-    final int hCount = yTickCount > 0 ? (yTickCount + 1) : 5; // yTickCount portions -> yTickCount+1 lines
-    for (var i = 0; i < vCount; i++) {
-      final dx = (i / (vCount - 1)) * size.width;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paintGrid);
-    }
-    // Draw horizontal grid lines aligned with Y axis ticks
-    // Calculate actual Y values for each tick to align grid lines with axis labels
-    for (var i = 0; i <= yTickCount; i++) {
-      // Calculate the value at this tick position (same formula as in _buildGraphiqueFromSpots)
-      final v = minY + (maxY - minY) * ((yTickCount - i) / yTickCount);
-      // Convert value to Y position (same formula as toOffset)
-      final dy = size.height - ((v - minY) / (maxY - minY)) * size.height;
-      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), paintGrid);
-    }
-
-    if (ancien.length >= 2) {
-      final path = Path();
-      for (var i = 0; i < ancien.length; i++) {
-        final o = toOffset(ancien[i]);
-        if (i == 0) {
-          path.moveTo(o.dx, o.dy);
-        } else {
-          path.lineTo(o.dx, o.dy);
-        }
-      }
-      canvas.drawPath(path, paintAnc);
-    }
-
-    if (nouveau.length >= 2) {
-      final path2 = Path();
-      for (var i = 0; i < nouveau.length; i++) {
-        final o = toOffset(nouveau[i]);
-        if (i == 0) {
-          path2.moveTo(o.dx, o.dy);
-        } else {
-          path2.lineTo(o.dx, o.dy);
-        }
-      }
-      canvas.drawPath(path2, paintNouv);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
+// Le graphique (SimpleLineChart + son CustomPainter) a été déplacé dans
+// lib/widgets/simple_line_chart.dart pour garder cet écran plus court et
+// permettre de réutiliser le graphique ailleurs.

@@ -72,6 +72,7 @@ class PdfExportService {
     Map<String, dynamic>? comparatifData,
     Uint8List? graphiqueConsommationImage,
     Uint8List? graphiqueCoutImage,
+    String? customOutputDirectory,
   }) async {
     if (projet.id == null) return;
 
@@ -87,7 +88,15 @@ class PdfExportService {
 
     try {
       final bytes = await doc.save();
-      final dir = await getApplicationDocumentsDirectory();
+      Directory dir;
+      if (customOutputDirectory != null && customOutputDirectory.isNotEmpty) {
+        dir = Directory(customOutputDirectory);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      } else {
+        dir = await getApplicationDocumentsDirectory();
+      }
       final safeName = _sanitizeFilename(projet.nomSite);
       final filePath = p.join(dir.path, '${safeName}_rapport_complet.pdf');
       final file = File(filePath);
@@ -549,7 +558,13 @@ class PdfExportService {
   }
 
   /// Nettoie un nom de fichier pour enlever les caracteres speciaux
+  /// Supprime les caracteres interdits dans les noms de fichiers Windows: < > : " / \ | ? *
   static String _sanitizeFilename(String filename) {
-    return filename.replaceAll(RegExp(r"[^a-zA-Z0-9_\-\s]"), '_').replaceAll(' ', '_');
+    return filename
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_\-\s]'), '_')
+        .replaceAll(' ', '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
   }
 }
