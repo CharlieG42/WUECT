@@ -229,7 +229,7 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int>(
-                                value: _selectedContactId,
+                                initialValue: _selectedContactId,
                                 decoration: const InputDecoration(
                                   labelText: 'Contact associé',
                                   border: OutlineInputBorder(),

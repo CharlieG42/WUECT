@@ -4,6 +4,7 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'utils/hive_init.dart';
 import 'screens/home_screen.dart';
 import 'models/contact.dart';
@@ -15,6 +16,10 @@ import 'services/settings_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialiser les données de locale pour le français
+  // Requise pour DateFormat et NumberFormat avec locale 'fr_FR'
+  initializeDateFormatting('fr_FR', null);
 
   // Initialiser Hive (utilise un init conditionnel qui respecte web)
   await initHive();

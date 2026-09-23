@@ -414,9 +414,9 @@ class RapportService {
         pw.TableRow(
           children: [
             _celluleTableau(annee.toString(), _styleCellule),
-            _celluleTableau('${_formatNumber(consoAnc)}', _styleCellule),
-            _celluleTableau('${_formatNumber(consoNouv)}', _styleCellule),
-            _celluleTableau('${_formatNumber(economieKWh)}', _styleCellule),
+            _celluleTableau(_formatNumber(consoAnc), _styleCellule),
+            _celluleTableau(_formatNumber(consoNouv), _styleCellule),
+            _celluleTableau(_formatNumber(economieKWh), _styleCellule),
             _celluleTableau(_formatCurrency(coutAnc), _styleCellule),
             _celluleTableau(_formatCurrency(coutNouv), _styleCellule),
             _celluleTableau(_formatCurrency(economieEuro), _styleCellule),
@@ -439,7 +439,7 @@ class RapportService {
             pw.SizedBox(height: 10),
             pw.Text(
               '* Les coûts incluent l\'investissement initial uniquement en année 1',
-              style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
             ),
           ];
         },
@@ -643,7 +643,7 @@ class RapportService {
 
   /// Formate un nombre comme monnaie
   static String _formatCurrency(double value) {
-    return '${currencySymbol}${value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 2).replaceAll('.', ',')}';
+    return '$currencySymbol${value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 2).replaceAll('.', ',')}';
   }
 
   /// Formate un nombre avec des séparateurs de milliers

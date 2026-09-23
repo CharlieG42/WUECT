@@ -253,8 +253,8 @@ class _SimpleLinePainter extends CustomPainter {
         ..strokeWidth = 1.5
         ..isAntiAlias = true;
       // Draw dashed line: alternate between drawing and skipping
-      final dashWidth = 5.0;
-      final dashSpace = 3.0;
+      const dashWidth = 5.0;
+      const dashSpace = 3.0;
       final totalWidth = size.width;
       for (var x = 0.0; x < totalWidth; x += dashWidth + dashSpace) {
         final endX = (x + dashWidth).clamp(0.0, totalWidth);

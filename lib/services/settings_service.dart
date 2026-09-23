@@ -27,7 +27,7 @@ class SettingsService {
   bool _useDefaultParams = false;
   int _dureeEtudeAnnee = 10;
   double _pourcentageAugmentationEnergieDefault = 5.0;
-  String? _pdfExportDirectory = null;
+  String? _pdfExportDirectory;
   
   SettingsService._init();
   
