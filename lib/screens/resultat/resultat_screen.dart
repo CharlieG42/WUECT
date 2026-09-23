@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/rendering.dart';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
 import '../../models/systeme.dart';
@@ -19,8 +22,7 @@ import '../../widgets/settings_dialog.dart';
 import '../../widgets/simple_line_chart.dart';
 import 'package:intl/intl.dart';
 import '../../utils/error_handler.dart';
-import '../../utils/exportPDF.dart';
-import '../../services/settings_service.dart';
+import 'package:open_filex/open_filex.dart';
 import '../contact/contact_form_screen.dart';
 
 
@@ -1051,60 +1053,60 @@ class _ResultatScreenState extends State<ResultatScreen> {
             children: [
               // General info
               Text('Les calculs sont effectués pour chaque année sur $_dureeEtude ans.', 
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 12),
               
               // Consumption calculation
-              const Text('1. Calcul de la Consommation (kWh) :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-              const SizedBox(height: 4),
-              const Text('Formule: P1 × Heures de fonctionnement'),
-              const Text('où P1 = Puissance utile de la pompe en kW'),
-              const Text('Les rendements pompe et moteur sont pris en compte dans P1.'),
-              const SizedBox(height: 8),
+              Text('1. Calcul de la Consommation (kWh) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+              SizedBox(height: 4),
+              Text('Formule: P1 × Heures de fonctionnement'),
+              Text('où P1 = Puissance utile de la pompe en kW'),
+              Text('Les rendements pompe et moteur sont pris en compte dans P1.'),
+              SizedBox(height: 8),
               
               // Cost calculation
-              const Text('2. Calcul du Coût Énergétique (EUR) :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-              const SizedBox(height: 4),
-              const Text('Formule: Consommation × Coût de l\'énergie (EUR/kWh)'),
-              const Text('Le coût de l\'énergie provient du projet et peut augmenter chaque année.'),
-              const SizedBox(height: 8),
+              Text('2. Calcul du Coût Énergétique (EUR) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+              SizedBox(height: 4),
+              Text('Formule: Consommation × Coût de l\'énergie (EUR/kWh)'),
+              Text('Le coût de l\'énergie provient du projet et peut augmenter chaque année.'),
+              SizedBox(height: 8),
               
               // Savings calculation
-              const Text('3. Calcul des Économies :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-              const SizedBox(height: 4),
-              const Text('Économie kWh = Consommation Ancien - Consommation Nouveau'),
-              const Text('Économie EUR = Coût Ancien - Coût Nouveau'),
-              const SizedBox(height: 8),
+              Text('3. Calcul des Économies :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              SizedBox(height: 4),
+              Text('Économie kWh = Consommation Ancien - Consommation Nouveau'),
+              Text('Économie EUR = Coût Ancien - Coût Nouveau'),
+              SizedBox(height: 8),
               
               // ROI calculation
-              const Text('4. Calcul du ROI (Retour sur Investissement) :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
-              const SizedBox(height: 4),
+              Text('4. Calcul du ROI (Retour sur Investissement) :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+              SizedBox(height: 4),
               Text('Économie totale sur $_dureeEtude ans = Somme des économies annuelles'),
-              const Text('Delta Investissement = Coût Nouveau - Coût Ancien'),
-              const Text('ROI (années) = Delta Investissement / (Économie annuelle moyenne)'),
-              const SizedBox(height: 8),
+              Text('Delta Investissement = Coût Nouveau - Coût Ancien'),
+              Text('ROI (années) = Delta Investissement / (Économie annuelle moyenne)'),
+              SizedBox(height: 8),
               
               // Volume calculation
-              const Text('5. Calcul du Volume Total :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-              const SizedBox(height: 4),
+              Text('5. Calcul du Volume Total :', 
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+              SizedBox(height: 4),
               Text('Formule: Σ(Débit × Heures de fonctionnement × $_dureeEtude)'),
               Text('Le facteur $_dureeEtude convertit en m³ (débit en m³/h × heures × $_dureeEtude ans)'),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               
               // Note about corrected power
-              const Text('Note sur la Puissance Corrigée :', 
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              const Text('Si une valeur de P1 Corrigée est saisie, elle est utilisée'),
-              const Text('au lieu de la P1 Calculée pour tous les calculs.'),
-              const Text('La dégradation annuelle est appliquée selon:'),
-              const Text('P1(n) = P1 corrigée / (1 - %perte)^(2 × n)'),
-              const Text('Cela permet de tenir compte des pertes de rendement côté pompe et moteur.'),
+              Text('Note sur la Puissance Corrigée :', 
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 4),
+              Text('Si une valeur de P1 Corrigée est saisie, elle est utilisée'),
+              Text('au lieu de la P1 Calculée pour tous les calculs.'),
+              Text('La dégradation annuelle est appliquée selon:'),
+              Text('P1(n) = P1 corrigée / (1 - %perte)^(2 × n)'),
+              Text('Cela permet de tenir compte des pertes de rendement côté pompe et moteur.'),
             ],
           ),
         ),
@@ -1126,19 +1128,14 @@ class _ResultatScreenState extends State<ResultatScreen> {
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
           IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            tooltip: 'Exporter PDF',
-            onPressed: _exportComparatifPdf,
-          ),
-          IconButton(
-            icon: const Icon(Icons.download),
-            tooltip: 'Sauvegarder PDF',
-            onPressed: _saveComparatifPdfLocally,
-          ),
-          IconButton(
             icon: const Icon(Icons.description),
-            tooltip: 'Sauvegarder rapport Word',
-            onPressed: _saveWordReportLocally,
+            tooltip: 'Exporter rapport Word',
+            onPressed: _exportWordReport,
+          ),
+          IconButton(
+            icon: const Icon(Icons.save_as),
+            tooltip: 'Enregistrer sous...',
+            onPressed: _saveWordReportAs,
           ),
           IconButton(icon: const Icon(Icons.settings), onPressed: () => SettingsDialog.show(context, 
             title: 'Paramètres de Calcul',
@@ -1167,7 +1164,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
                                 const Text('Contact Associé', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 8),
                                 DropdownButtonFormField<int>(
-                                  initialValue: _selectedContactId,
+                                  value: _selectedContactId,
                                   decoration: const InputDecoration(
                                     labelText: 'Sélectionner un contact',
                                     border: OutlineInputBorder(),
@@ -1246,7 +1243,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Analyse de Rentabilité (ROI)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Analyse de Rentabilité (ROI)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const Divider(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               Text('Coût énergétique total ($_dureeEtude ans):'),
@@ -1400,7 +1397,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Volume vs Énergie Consommée (sur $_dureeEtude ans)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text('Volume vs Énergie Consommée (sur $_dureeEtude ans)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Comparaison des systèmes basée sur l\'énergie spécifique des pompes', style: TextStyle(color: Colors.grey, fontSize: 14)),
           const SizedBox(height: 16),
@@ -1412,109 +1409,6 @@ class _ResultatScreenState extends State<ResultatScreen> {
           const SizedBox(height: 8),
         ]),
       ),
-    );
-  }
-
-  // Methodes d'export PDF
-  Future<void> _exportComparatifPdf() async {
-    if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
-
-    // Capture des graphiques
-    final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
-    final coutImage = await PdfExportService.captureWidgetAsImage(_coutGraphKey);
-
-    // Preparation des donnees comparatif
-    final comparatifData = {
-      'dataAncien': {
-        'totalConsommation': _energieAncien,
-        'totalCout': _roiData?['coutAncienTotal'] as double? ?? 0,
-        'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
-      },
-      'dataNouveau': {
-        'totalConsommation': _energieNouveau,
-        'totalCout': _roiData?['coutNouveauTotal'] as double? ?? 0,
-        'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
-      },
-      'economieData': {
-        'economieConsommation': _energieAncien - _energieNouveau,
-        'economieCout': (_roiData?['coutAncienTotal'] as double? ?? 0) - (_roiData?['coutNouveauTotal'] as double? ?? 0),
-        'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
-      },
-      'annualData': {
-        'annees': _annees,
-        'consommationsAncien': _consommationsAncien,
-        'consommationsNouveau': _consommationsNouveau,
-        'coutsAncien': _coutsAncien,
-        'coutsNouveau': _coutsNouveau,
-        'economiesKWh': List.generate(_dureeEtude, (i) => i < _consommationsAncien.length && i < _consommationsNouveau.length ? _consommationsAncien[i] - _consommationsNouveau[i] : 0),
-        'economiesEuro': List.generate(_dureeEtude, (i) => i < _coutsAncien.length && i < _coutsNouveau.length ? _coutsAncien[i] - _coutsNouveau[i] : 0),
-      },
-    };
-
-    await PdfExportService.exportFullReportToPdf(
-      context: context,
-      projet: _projet!,
-      contact: _contact,
-      systemes: [_systemeAncien!, _systemeNouveau!],
-      pompesBySysteme: {
-        if (_systemeAncien?.id != null) _systemeAncien!.id!: _pompesAncien,
-        if (_systemeNouveau?.id != null) _systemeNouveau!.id!: _pompesNouveau,
-      },
-      comparatifData: comparatifData,
-      graphiqueConsommationImage: consoImage,
-      graphiqueCoutImage: coutImage,
-    );
-  }
-
-  Future<void> _saveComparatifPdfLocally() async {
-    if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
-
-    // Capture des graphiques
-    final consoImage = await PdfExportService.captureWidgetAsImage(_consoGraphKey);
-    final coutImage = await PdfExportService.captureWidgetAsImage(_coutGraphKey);
-
-    // Preparation des donnees comparatif
-    final comparatifData = {
-      'dataAncien': {
-        'totalConsommation': _energieAncien,
-        'totalCout': _roiData?['coutAncienTotal'] as double? ?? 0,
-        'investissement': _systemeAncien?.coutInvestissementTotal ?? 0,
-      },
-      'dataNouveau': {
-        'totalConsommation': _energieNouveau,
-        'totalCout': _roiData?['coutNouveauTotal'] as double? ?? 0,
-        'investissement': _systemeNouveau?.coutInvestissementTotal ?? 0,
-      },
-      'economieData': {
-        'economieConsommation': _energieAncien - _energieNouveau,
-        'economieCout': (_roiData?['coutAncienTotal'] as double? ?? 0) - (_roiData?['coutNouveauTotal'] as double? ?? 0),
-        'economieInvestissement': (_systemeNouveau?.coutInvestissementTotal ?? 0) - (_systemeAncien?.coutInvestissementTotal ?? 0),
-      },
-      'annualData': {
-        'annees': _annees,
-        'consommationsAncien': _consommationsAncien,
-        'consommationsNouveau': _consommationsNouveau,
-        'coutsAncien': _coutsAncien,
-        'coutsNouveau': _coutsNouveau,
-        'economiesKWh': List.generate(_dureeEtude, (i) => i < _consommationsAncien.length && i < _consommationsNouveau.length ? _consommationsAncien[i] - _consommationsNouveau[i] : 0),
-        'economiesEuro': List.generate(_dureeEtude, (i) => i < _coutsAncien.length && i < _coutsNouveau.length ? _coutsAncien[i] - _coutsNouveau[i] : 0),
-      },
-    };
-
-    final settings = SettingsService.instance;
-    await PdfExportService.saveFullReportPdfLocally(
-      context: context,
-      projet: _projet!,
-      contact: _contact,
-      systemes: [_systemeAncien!, _systemeNouveau!],
-      pompesBySysteme: {
-        if (_systemeAncien?.id != null) _systemeAncien!.id!: _pompesAncien,
-        if (_systemeNouveau?.id != null) _systemeNouveau!.id!: _pompesNouveau,
-      },
-      comparatifData: comparatifData,
-      graphiqueConsommationImage: consoImage,
-      graphiqueCoutImage: coutImage,
-      customOutputDirectory: settings.pdfExportDirectory,
     );
   }
 
@@ -1530,7 +1424,11 @@ class _ResultatScreenState extends State<ResultatScreen> {
   /// car Projet ne conserve pas de date de création.
   Map<String, String> _buildWordReportTags() {
     final now = DateTime.now();
-    final dateFormat = DateFormat('dd/MM/yyyy', 'fr_FR');
+    // Format numérique uniquement (pas de nom de mois/jour) : aucun besoin
+    // d'appeler initializeDateFormatting('fr_FR') au préalable, contrairement
+    // à DateFormat(..., 'fr_FR') qui déclenche LocaleDataException si les
+    // données de locale n'ont pas été initialisées.
+    final dateFormat = DateFormat('dd/MM/yyyy');
     final percentFormat = NumberFormat('#,##0.0', 'fr_FR');
 
     final coutAncienTotal = _roiData?['coutAncienTotal'] as double? ?? 0.0;
@@ -1624,14 +1522,30 @@ class _ResultatScreenState extends State<ResultatScreen> {
     });
   }
 
-  /// Sauvegarde le rapport comparatif au format Word (.docx), rempli à
-  /// partir du gabarit `assets/templates/rapport_template.docx`. Ce gabarit
-  /// est librement personnalisable par l'utilisateur dans Word (police,
-  /// couleurs, mise en page) tant que les tags {{...}} restent identifiables.
-  ///
-  /// Limitation actuelle : les graphiques (consommation/coût) ne sont pas
-  /// insérés dans le .docx, contrairement à l'export PDF.
-  Future<void> _saveWordReportLocally() async {
+  /// Capture un widget comme image PNG pour insertion dans le rapport.
+  /// Utilise un [GlobalKey] pointant vers un [RepaintBoundary].
+  /// Retourne null si la capture échoue.
+  Future<Uint8List?> _captureWidgetAsImage(GlobalKey key) async {
+    try {
+      final RenderRepaintBoundary? boundary = 
+          key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      
+      final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('Erreur capture widget: $e');
+      return null;
+    }
+  }
+
+  /// Exporte le rapport comparatif au format Word (.docx) dans le dossier par défaut
+  /// et ouvre automatiquement le fichier après génération.
+  /// Le gabarit utilisé est `assets/templates/rapport_template.docx`.
+  /// Les graphiques (consommation/coût) sont automatiquement insérés si les placeholders
+  /// {{GRAPHIQUE_CONSOMMATION}} et {{GRAPHIQUE_COUT}} sont présents dans le template.
+  Future<void> _exportWordReport() async {
     if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
 
     try {
@@ -1639,10 +1553,24 @@ class _ResultatScreenState extends State<ResultatScreen> {
           .buffer
           .asUint8List();
 
+      // Capturer les graphiques
+      final consoImage = await _captureWidgetAsImage(_consoGraphKey);
+      final coutImage = await _captureWidgetAsImage(_coutGraphKey);
+      
+      // Préparer les images pour l'insertion dans le DOCX
+      final images = <String, Uint8List>{};
+      if (consoImage != null) {
+        images['GRAPHIQUE_CONSOMMATION'] = consoImage;
+      }
+      if (coutImage != null) {
+        images['GRAPHIQUE_COUT'] = coutImage;
+      }
+
       final bytes = await WordReportService.generateReport(
         templateBytes: templateBytes,
         tags: _buildWordReportTags(),
         annualRows: _buildWordReportAnnualRows(),
+        images: images,
       );
 
       final settings = SettingsService.instance;
@@ -1659,14 +1587,72 @@ class _ResultatScreenState extends State<ResultatScreen> {
 
       final safeName = _projet!.nomSite.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
       final filePath = p.join(dir.path, '${safeName}_rapport_comparatif.docx');
-      await File(filePath).writeAsBytes(bytes);
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
 
+      // Ouvrir automatiquement le fichier après sauvegarde
       if (mounted) {
-        ErrorHandler.showSnackBar(context, 'Rapport Word sauvegardé: $filePath');
+        await OpenFilex.open(filePath);
+        ErrorHandler.showSnackBar(context, 'Rapport Word exporté: $filePath');
       }
     } catch (e) {
       if (mounted) {
         ErrorHandler.showSnackBar(context, 'Erreur export Word: $e', error: true);
+      }
+    }
+  }
+
+  /// Permet à l'utilisateur de choisir l'emplacement et le nom du fichier DOCX
+  /// via un dialogue de sélection de fichier.
+  /// Les graphiques (consommation/coût) sont automatiquement insérés si les placeholders
+  /// {{GRAPHIQUE_CONSOMMATION}} et {{GRAPHIQUE_COUT}} sont présents dans le template.
+  Future<void> _saveWordReportAs() async {
+    if (_projet == null || _systemeAncien == null || _systemeNouveau == null) return;
+
+    try {
+      final templateBytes = (await rootBundle.load('assets/templates/rapport_template.docx'))
+          .buffer
+          .asUint8List();
+
+      // Capturer les graphiques
+      final consoImage = await _captureWidgetAsImage(_consoGraphKey);
+      final coutImage = await _captureWidgetAsImage(_coutGraphKey);
+      
+      // Préparer les images pour l'insertion dans le DOCX
+      final images = <String, Uint8List>{};
+      if (consoImage != null) {
+        images['GRAPHIQUE_CONSOMMATION'] = consoImage;
+      }
+      if (coutImage != null) {
+        images['GRAPHIQUE_COUT'] = coutImage;
+      }
+
+      final bytes = await WordReportService.generateReport(
+        templateBytes: templateBytes,
+        tags: _buildWordReportTags(),
+        annualRows: _buildWordReportAnnualRows(),
+        images: images,
+      );
+
+      // Utiliser file_picker pour sauvegarder le fichier
+      final filePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Enregistrer le rapport Word',
+        fileName: '${_projet!.nomSite.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_')}_rapport_comparatif.docx',
+        allowedExtensions: ['docx'],
+        type: FileType.custom,
+      );
+
+      if (filePath != null) {
+        final file = File(filePath);
+        await file.writeAsBytes(bytes);
+        
+        if (mounted) {
+          ErrorHandler.showSnackBar(context, 'Rapport Word sauvegardé: $filePath');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'Erreur sauvegarde Word: $e', error: true);
       }
     }
   }

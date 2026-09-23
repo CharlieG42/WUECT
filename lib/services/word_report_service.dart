@@ -12,10 +12,10 @@ import 'package:archive/archive.dart';
 /// donc remplacer le contenu textuel sans dépendre d'un moteur Word, tout en
 /// laissant l'utilisateur restyler le document dans Word ensuite.
 ///
-/// Limitations connues (volontairement pas traitées ici, cf. discussion) :
-/// - Pas d'insertion d'image (graphiques) dans le `.docx` pour l'instant.
-/// - Un seul niveau de répétition de ligne de tableau est géré (la ligne
-///   "année 1", dupliquée pour chaque année) — pas de répétition imbriquée.
+/// Fonctionnalités :
+/// - Remplacement des tags textuels `{{TAG}}` par des valeurs
+/// - Duplication des lignes de tableau annuel basées sur `{{ANNEE_1}}`
+/// - Insertion d'images (graphiques) à partir de placeholders comme `{{GRAPHIQUE_CONSOMMATION}}`
 class WordReportService {
   /// Nom du fichier dans le tableau (première ligne du tableau annuel)
   /// servant de modèle de duplication. Doit correspondre à
@@ -23,6 +23,8 @@ class WordReportService {
   static const String _annualRowAnchorTag = 'ANNEE_1';
 
   static const String _documentXmlPath = 'word/document.xml';
+  static const String _relsPath = 'word/_rels/document.xml.rels';
+  static const String _mediaPathPrefix = 'word/media/';
 
   /// Construit le `.docx` final :
   /// - [templateBytes] : contenu du gabarit `.docx` (chargé depuis les
@@ -33,10 +35,13 @@ class WordReportService {
   ///   *sans* le suffixe `_i` (ex. `{'ANNEE': '1', 'CONSOMMATION_ANCIEN':
   ///   '50000 kWh', ...}`) ; le service ajoute lui-même `_1`, `_2`, ... et
   ///   duplique la ligne de tableau modèle en conséquence.
+  /// - [images] : map des noms de placeholders d'image vers les bytes de l'image.
+  ///   Ex: `{'GRAPHIQUE_CONSOMMATION': Uint8List(...), 'GRAPHIQUE_COUT': Uint8List(...)}`
   static Future<Uint8List> generateReport({
     required Uint8List templateBytes,
     required Map<String, String> tags,
     List<Map<String, String>> annualRows = const [],
+    Map<String, Uint8List> images = const {},
   }) async {
     final archive = ZipDecoder().decodeBytes(templateBytes);
 
@@ -57,24 +62,92 @@ class WordReportService {
     //    entre plusieurs runs Word (<w:t>).
     xml = _replaceTags(xml, allTags);
 
+    // 3) Insérer les images si des placeholders sont fournis
+    final imageReplacements = <String, String>{};
+    final imageFiles = <String, Uint8List>{};
+    final imageRels = <String, String>{};
+    
+    if (images.isNotEmpty) {
+      xml = _replaceImagePlaceholders(
+        xml, 
+        images, 
+        imageReplacements, 
+        imageRels,
+      );
+      imageFiles.addAll(images);
+    }
+
     final newDocumentBytes = utf8.encode(xml);
 
-    // Reconstruit l'archive à l'identique, sauf document.xml.
-    final outArchive = Archive();
+    // 4) Mettre à jour le fichier de relations si des images ont été ajoutées
+    ArchiveFile? relsFile;
     for (final file in archive.files) {
+      if (file.name == _relsPath) {
+        relsFile = file;
+        break;
+      }
+    }
+    
+    Uint8List? newRelsBytes;
+    if (relsFile != null && imageRels.isNotEmpty) {
+      final relsXml = utf8.decode(relsFile.content as List<int>);
+      newRelsBytes = Uint8List.fromList(utf8.encode(_updateRelationships(relsXml, imageRels)));
+    }
+
+    // Reconstruit l'archive à l'identique, sauf document.xml et éventuellement document.xml.rels
+    final outArchive = Archive();
+    
+    // Conserver tous les fichiers existants (sauf ceux qu'on remplace)
+    for (final file in archive.files) {
+      // Remplacer document.xml
       if (file.name == _documentXmlPath) {
         outArchive.addFile(ArchiveFile(
           _documentXmlPath,
           newDocumentBytes.length,
           newDocumentBytes,
         ));
-      } else if (file.isFile) {
+      }
+      // Remplacer document.xml.rels si modifié
+      else if (file.name == _relsPath && newRelsBytes != null) {
+        outArchive.addFile(ArchiveFile(
+          _relsPath,
+          newRelsBytes.length,
+          newRelsBytes,
+        ));
+      }
+      // Ajouter les images dans word/media/
+      else if (file.name.startsWith(_mediaPathPrefix)) {
+        // Conserver les images existantes du template
+        final content = file.content as List<int>;
+        outArchive.addFile(ArchiveFile(file.name, content.length, content));
+      }
+      else if (file.isFile) {
         final content = file.content as List<int>;
         outArchive.addFile(ArchiveFile(file.name, content.length, content));
       }
     }
+    
+    // Ajouter les nouvelles images dans word/media/
+    var imageIndex = 1;
+    for (final entry in imageFiles.entries) {
+      final imageName = 'image$imageIndex.png';
+      final imagePath = _mediaPathPrefix + imageName;
+      
+      outArchive.addFile(ArchiveFile(
+        imagePath,
+        entry.value.length,
+        entry.value,
+      ));
+      
+      // Stocker la correspondance placeholder -> nom d'image
+      imageReplacements[entry.key] = imageName;
+      imageIndex++;
+    }
 
     final encoded = ZipEncoder().encode(outArchive);
+    if (encoded == null) {
+      throw StateError('Échec de la réécriture du fichier .docx (ZipEncoder)');
+    }
     return Uint8List.fromList(encoded);
   }
 
@@ -94,7 +167,7 @@ class WordReportService {
   ) {
     if (annualRows.isEmpty) return xml;
 
-    const anchor = '{{$_annualRowAnchorTag}}';
+    final anchor = '{{$_annualRowAnchorTag}}';
     final anchorIndex = xml.indexOf(anchor);
     if (anchorIndex == -1) {
       // Pas de tableau annuel dans ce gabarit : rien à dupliquer, les tags
@@ -143,10 +216,6 @@ class WordReportService {
         if (value != null) {
           allTags['${baseName}_$index'] = value;
         }
-        // Si value est null, on ajoute une chaîne vide pour éviter les tags non remplacés
-        else {
-          allTags['${baseName}_$index'] = '';
-        }
       }
     }
 
@@ -164,8 +233,14 @@ class WordReportService {
   /// l'a scindé entre deux `<w:t>` consécutifs, et gère aussi plusieurs
   /// tags présents dans un même run.
   static String _replaceTags(String xml, Map<String, String> tags) {
+    // Important : (?=[ >/]) juste après "<w:t" garantit qu'on ne matche que
+    // la vraie balise <w:t> (texte), pas <w:tc>, <w:tr>, <w:tcPr>, <w:tbl>,
+    // <w:tab/>... qui commencent toutes aussi par le préfixe littéral
+    // "<w:t". Sans cette garde, "<w:tc>" était pris pour "<w:t c...>" et
+    // tout le XML jusqu'au prochain </w:t> se faisait avaler et écraser
+    // (c'est ce qui corrompait le document généré).
     final runPattern = RegExp(
-      r'<w:t(?:/>|(?:[^>]*?)>(?<text>.*?)</w:t>)',
+      r'<w:t(?=[ >/])(?:/>|[^>]*?>(?<text>.*?)</w:t>)',
       dotAll: true,
     );
 
@@ -253,20 +328,166 @@ class WordReportService {
       lastEnd = m.end;
     }
     out.write(xml.substring(lastEnd));
+    return out.toString();
+  }
+
+  // ==========================================================================
+  // Insertion des images (graphiques)
+  // ==========================================================================
+
+  /// Remplace les placeholders d'image (ex: {{GRAPHIQUE_CONSOMMATION}}) par
+  /// des références à des images dans le document Word.
+  /// Retourne le XML modifié et remplit [imageRels] avec les relations à ajouter.
+  static String _replaceImagePlaceholders(
+    String xml,
+    Map<String, Uint8List> images,
+    Map<String, String> imageReplacements,
+    Map<String, String> imageRels,
+  ) {
+    if (images.isEmpty) return xml;
+
+    // Trouver tous les placeholders d'image dans le document
+    final placeholderPattern = RegExp(r'\{\{([A-Z0-9_]+)\}\}');
+    final matches = placeholderPattern.allMatches(xml).toList();
     
-    // Supprimer tous les tags non remplacés pour éviter les {{TAG}} restants
-    // qui pourraient corrompre le document
-    final result = out.toString();
-    return result.replaceAll(RegExp(r'\{\{[A-Z0-9_]+\}\}'), '');
+    // Filtrer uniquement les placeholders qui correspondent à des images fournies
+    final imagePlaceholders = matches.where((m) {
+      final placeholderName = m.group(1)!;
+      return images.containsKey(placeholderName);
+    }).toList();
+    
+    if (imagePlaceholders.isEmpty) return xml;
+
+    // Remplacer chaque placeholder par un élément de dessin Word
+    var resultXml = xml;
+    var imageIndex = 1;
+    
+    for (final match in imagePlaceholders) {
+      final placeholderName = match.group(1)!;
+      final imageName = 'image$imageIndex.png';
+      
+      // Créer un ID de relation unique
+      final relId = 'rId${100 + imageIndex}';
+      
+      // Stocker la correspondance pour la mise à jour des relations
+      imageReplacements[placeholderName] = imageName;
+      imageRels[relId] = imageName;
+      
+      // Créer l'élément de dessin Word pour l'image
+      // Ce sera un paragraphe avec un drawing inline
+      final drawingXml = _createImageDrawingXml(relId, imageName, imageIndex);
+      
+      // Remplacer le placeholder par le drawing
+      resultXml = resultXml.replaceFirst(
+        '{{$placeholderName}}',
+        drawingXml,
+      );
+      
+      imageIndex++;
+    }
+    
+    return resultXml;
+  }
+
+  /// Crée le XML pour un élément de dessin Word avec une image.
+  /// Le drawing est encapsulé dans un paragraphe <w:p>.
+  static String _createImageDrawingXml(String relId, String imageName, int imageIndex) {
+    // Éléments de base avec des identifiants uniques
+    final drawId = 1000 + imageIndex;
+    
+    return '''
+<w:p w14:paraId="FFFF000${imageIndex}" w14:textId="7777000${imageIndex}" w:rsidR="00000000" w:rsidRPr="00000000" w:rsidP="00000000" xmlns:w14="http://schemas.microsoft.com/office/word/2009/wordml">
+  <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+    <w:rPr>
+      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
+      <w:sz w:val="24"/>
+      <w:szCs w:val="24"/>
+    </w:rPr>
+  </w:pPr>
+  <w:r w:rsidRPr="00000000">
+    <w:rPr>
+      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
+      <w:sz w:val="24"/>
+      <w:szCs w:val="24"/>
+    </w:rPr>
+    <w:drawing>
+      <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+        <wp:extent cx="6000000" cy="4000000"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:docPr id="$drawId" name="$imageName" descr="Graphique"/>
+        <wp:cNvGraphicFramePr>
+          <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1" noChangeArrowheads="1"/>
+        </wp:cNvGraphicFramePr>
+        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+              <pic:blipFill>
+                <a:blip r:embed="$relId" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+                <a:stretch>
+                  <a:fillRect/>
+                </a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <a:off x="0" y="0"/>
+                  <a:ext cx="6000000" cy="4000000"/>
+                </a:xfrm>
+                <a:prstGeom prst="rect" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <a:avLst/>
+                </a:prstGeom>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+    </w:drawing>
+  </w:r>
+</w:p>
+'''.replaceAll('$drawId', drawId.toString())
+      .replaceAll('$imageName', _escapeXml(imageName))
+      .replaceAll('$relId', relId);
+  }
+
+  /// Met à jour le fichier de relations pour ajouter les références aux images.
+  static String _updateRelationships(String relsXml, Map<String, String> imageRels) {
+    if (imageRels.isEmpty) return relsXml;
+    
+    // Trouver la position avant la balise de fermeture </Relationships>
+    var closingTagIndex = relsXml.lastIndexOf('</Relationships>');
+    if (closingTagIndex == -1) {
+      // Essayer avec </relationships> en minuscules
+      closingTagIndex = relsXml.lastIndexOf('</relationships>');
+      if (closingTagIndex == -1) {
+        return relsXml;
+      }
+    }
+    
+    // Ajouter chaque relation d'image
+    final buffer = StringBuffer(relsXml.substring(0, closingTagIndex));
+    
+    for (final entry in imageRels.entries) {
+      final relId = entry.key;
+      final imageName = entry.value;
+      final imagePath = _mediaPathPrefix + imageName;
+      
+      // Créer une relation pour l'image
+      buffer.writeln('''
+    <Relationship Id="$relId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="$imagePath"/>
+''');
+    }
+    
+    buffer.write(relsXml.substring(closingTagIndex));
+    
+    return buffer.toString();
   }
 
   static String _escapeXml(String value) {
     return value
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&apos;');
+        .replaceAll('>', '&gt;');
   }
 }
 
@@ -276,5 +497,5 @@ class _Span {
   final int start;
   final int end;
   final String replacement;
-  _Span(this.start, this.end, this.replacement);
+  const _Span(this.start, this.end, this.replacement);
 }

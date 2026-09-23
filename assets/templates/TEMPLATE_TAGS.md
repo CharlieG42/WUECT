@@ -1,18 +1,23 @@
-# WUECT - Référence des Tags pour Template de Rapport
+# WUECT - Référence des Tags pour Template de Rapport DOCX
 
-> **Version** : 1.1  
-> **Date** : 22/09/2026  
-> **Format** : PDF avec tags à remplacer
+> **Version** : 1.2  
+> **Date** : 23/09/2026  
+> **Format** : DOCX avec tags à remplacer
 
 ---
 
-## ⚠️ **État actuel de l'implémentation**
+## ✅ **État actuel de l'implémentation**
 
-Ce fichier documente un **format de tags prévu**, mais **aucun mécanisme de remplacement de tags n'est implémenté dans le code actuellement**. Ni `PdfExportService` (`lib/utils/exportPDF.dart`, utilisé par l'écran Résultats) ni `RapportService` (`lib/services/rapport_service.dart`, non appelé depuis aucun écran) ne lisent `template_ec.pptx`/`template_ec.pdf` ni ne remplacent de tags `{{...}}` : les deux construisent le PDF "en dur" avec des widgets `pw.*`, exactement comme le recommande la section *Limitations* plus bas dans ce document.
+**Bonne nouvelle** : Le remplacement de tags **EST IMPLEMENTE** dans `WordReportService` (`lib/services/word_report_service.dart`).
 
-Concrètement :
-- Le contenu ci-dessous doit être vu comme un **cahier des charges / une liste de correspondance** pour quelqu'un qui implémenterait un jour le remplacement de tags — pas comme une fonctionnalité disponible aujourd'hui.
-- `rapport_service.dart` a l'air d'être une ébauche parallèle à `exportPDF.dart` : les deux génèrent un rapport PDF complet, avec un contenu différent, mais aucun des deux ne lit de template. Vaut le coup de vérifier si l'un des deux est encore utile, ou si `RapportService` peut être supprimé pour éviter la confusion.
+Ce service génère des rapports DOCX en :
+1. Chargeant le template `assets/templates/rapport_template.docx`
+2. Remplaçant tous les tags `{{TAG}}` par les valeurs correspondantes
+3. Dupliquant automatiquement les lignes du tableau annuel basées sur `{{ANNEE_1}}`
+
+Le template actuel `rapport_template.docx` doit contenir les tags documentés ci-dessous pour que le rapport soit généré correctement.
+
+**Note sur les PDF** : Les services `PdfExportService` (`lib/utils/exportPDF.dart`) et `RapportService` (`lib/services/rapport_service.dart`) ont été conservés pour référence mais ne sont plus utilisés dans l'interface principale. Le bouton "Exporter PDF" a été supprimé de l'AppBar.
 
 ---
 
@@ -206,21 +211,81 @@ Seuil de rentabilité : Année {{SEUIL_RENTABILITE}}
 
 ## 🔧 **Implémentation Technique**
 
-### Prérequis
-1. Placer votre template dans : `assets/templates/template_ec.pptx`
-2. Utiliser les tags exacts (respecter la casse)
-3. Pour les images, prévoir des zones dédiées
+### Prérequis pour le template DOCX
+1. Placer votre template dans : `assets/templates/rapport_template.docx`
+2. Utiliser les tags exacts (respecter la casse : `{{TAG}}`)
+3. Pour les tableaux annuels, inclure une ligne avec `{{ANNEE_1}}` qui sera dupliquée pour chaque année
 
-### Limitations
-- **PPTX** : Flutter n'a pas de support natif pour modifier les fichiers PowerPoint
-- **Solution recommandée** : Utiliser un format compatible comme PDF ou DOCX
-- **Alternative** : Générer le rapport directement en PDF depuis Flutter
+### Fonctionnement
+- Le service `WordReportService` parcourt le fichier `document.xml` dans l'archive DOCX
+- Il remplace tous les tags `{{TAG}}` trouvés dans les balises `<w:t>` (runs de texte Word)
+- Pour les tableaux annuels, il duplique la ligne contenant `{{ANNEE_1}}` et renomme les tags en `{{ANNEE_2}}`, `{{ANNEE_3}}`, etc.
 
-### Recommandation
-Pour une intégration fluide avec Flutter, nous recommandons :
-1. **Créer un template PowerPoint** pour le design
-2. **Exporter en PDF** 
-3. **Utiliser la library `pdf`** de Flutter pour générer le rapport final avec les tags remplacés
+---
+
+## 📊 **Ajout des Graphiques dans le Rapport DOCX**
+
+### État actuel
+Actuellement, les graphiques de consommation et de coût **ne sont pas inclus** dans le rapport DOCX généré par `WordReportService`.
+
+### Solution 1 : Insérer manuellement après génération (Recommandé pour l'instant)
+1. Générez le rapport DOCX via l'application
+2. Ouvrez le fichier dans Microsoft Word
+3. Copiez-collez les graphiques depuis l'application ou capturez-les comme images
+4. Insérez-les manuellement dans le document
+
+### Solution 2 : Modifier le template Word avec des placeholders images
+
+Dans votre template `rapport_template.docx` :
+1. Insérez un paragraphe vide avec le texte : `{{GRAPHIQUE_CONSOMMATION}}`
+2. Insérez un autre paragraphe avec : `{{GRAPHIQUE_COUT}}`
+
+**Pour implémenter l'insertion automatique d'images** :
+
+Il faudrait modifier `WordReportService` pour supporter les images. Voici les étapes techniques :
+
+1. **Capturer les graphiques** (déjà fait dans `resultat_screen.dart`) :
+   ```dart
+   final consoImage = await _captureGraphique(_consoGraphKey);
+   final coutImage = await _captureGraphique(_coutGraphKey);
+   ```
+
+2. **Modifier WordReportService** :
+   ```dart
+   // Ajouter des paramètres optionnels pour les images
+   static Future<Uint8List> generateReport({
+     required Uint8List templateBytes,
+     required Map<String, String> tags,
+     List<Map<String, String>> annualRows = const [],
+     Map<String, Uint8List> images = const {}, // Nouveau paramètre
+   }) async {
+     // ... code existant ...
+     
+     // Ajouter les images à l'archive
+     if (images.isNotEmpty) {
+       xml = _insertImages(xml, images, archive);
+     }
+     
+     // ... reste du code ...
+   }
+   ```
+
+3. **Mécanisme d'insertion d'images** :
+   - Ajouter chaque image dans `word/media/` avec un nom unique (ex: `image1.png`)
+   - Mettre à jour `document.xml` pour inclure un élément `<w:drawing>` avec référence à l'image
+   - Mettre à jour `word/_rels/document.xml.rels` pour ajouter la relation
+
+**Complexité** : L'insertion d'images dans DOCX nécessite une bonne compréhension de la structure OpenXML des documents Word. 
+
+### Solution 3 : Utiliser un template avec des images intégrées
+Créez votre template Word avec les graphiques déjà intégrés comme images de fond, puis remplacez simplement les tags textuels.
+
+---
+
+## 📅 **Changelog**
+
+- **v1.2** (23/09/2026) : Mise à jour pour refléter l'implémentation actuelle de WordReportService. Suppression des références à l'export PDF.
+- **v1.1** (22/09/2026) : Version initiale
 
 ---
 
@@ -230,4 +295,4 @@ Pour toute question sur les tags ou l'implémentation, contacter l'équipe de d�
 
 ---
 
-*Généré automatiquement par WUECT - V1.1*
+*Documentation WUECT - V1.2*
