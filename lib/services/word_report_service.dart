@@ -15,8 +15,18 @@ import 'package:archive/archive.dart';
 /// Fonctionnalités :
 /// - Remplacement des tags textuels `{{TAG}}` par des valeurs
 /// - Duplication des lignes de tableau annuel basées sur `{{ANNEE_1}}`
-/// - Insertion d'images (graphiques) à partir de placeholders comme `{{GRAPHIQUE_CONSOMMATION}}`
+/// - Insertion d'images (graphiques) à partir de placeholders texte comme
+///   `{{GRAPHIQUE_CONSOMMATION}}`, chacun seul dans son propre paragraphe.
 class WordReportService {
+  /// Cherche un fichier par chemin exact dans l'archive (équivalent d'un
+  /// `firstOrNull`, sans dépendre de `package:collection`).
+  static ArchiveFile? _findFile(Archive archive, String name) {
+    for (final f in archive.files) {
+      if (f.name == name) return f;
+    }
+    return null;
+  }
+
   /// Nom du fichier dans le tableau (première ligne du tableau annuel)
   /// servant de modèle de duplication. Doit correspondre à
   /// `{{ANNEE_1}}` dans `assets/templates/rapport_template.docx`.
@@ -25,6 +35,15 @@ class WordReportService {
   static const String _documentXmlPath = 'word/document.xml';
   static const String _relsPath = 'word/_rels/document.xml.rels';
   static const String _mediaPathPrefix = 'word/media/';
+  static const String _contentTypesPath = '[Content_Types].xml';
+
+  /// Largeur de repli, en EMU (914400 EMU = 1 pouce), utilisée uniquement si
+  /// la largeur de page réelle du gabarit n'a pas pu être lue (section
+  /// `<w:sectPr>` absente ou inattendue). En temps normal, la largeur
+  /// utilisée est calculée dynamiquement depuis `<w:pgSz>`/`<w:pgMar>` du
+  /// document (voir [_pageContentWidthEmu]) pour occuper toute la largeur
+  /// imprimable de la page, marges déduites.
+  static const int _fallbackImageWidthEmu = 5486400; // 6 pouces
 
   /// Construit le `.docx` final :
   /// - [templateBytes] : contenu du gabarit `.docx` (chargé depuis les
@@ -35,8 +54,10 @@ class WordReportService {
   ///   *sans* le suffixe `_i` (ex. `{'ANNEE': '1', 'CONSOMMATION_ANCIEN':
   ///   '50000 kWh', ...}`) ; le service ajoute lui-même `_1`, `_2`, ... et
   ///   duplique la ligne de tableau modèle en conséquence.
-  /// - [images] : map des noms de placeholders d'image vers les bytes de l'image.
-  ///   Ex: `{'GRAPHIQUE_CONSOMMATION': Uint8List(...), 'GRAPHIQUE_COUT': Uint8List(...)}`
+  /// - [images] : map placeholder (sans accolades, ex. `GRAPHIQUE_COUT`) ->
+  ///   bytes PNG. Chaque placeholder doit être seul dans son propre
+  ///   paragraphe dans le gabarit (ex. `{{GRAPHIQUE_COUT}}` sur sa ligne) :
+  ///   ce paragraphe entier est remplacé par l'image.
   static Future<Uint8List> generateReport({
     required Uint8List templateBytes,
     required Map<String, String> tags,
@@ -59,89 +80,77 @@ class WordReportService {
     xml = _expandAnnualTable(xml, annualRows, allTags);
 
     // 2) Remplacer tous les tags {{...}} restants, y compris ceux éclatés
-    //    entre plusieurs runs Word (<w:t>).
+    //    entre plusieurs runs Word (<w:t>). Les placeholders d'image (dans
+    //    `images`, pas dans `tags`) sont ignorés ici et traités ensuite.
     xml = _replaceTags(xml, allTags);
 
-    // 3) Insérer les images si des placeholders sont fournis
-    final imageReplacements = <String, String>{};
-    final imageFiles = <String, Uint8List>{};
-    final imageRels = <String, String>{};
-    
+    // 3) Insérer les images : chaque placeholder d'image trouvé remplace le
+    //    paragraphe entier qui le contient par un paragraphe <w:drawing>,
+    //    dimensionné à la largeur imprimable réelle de la page du gabarit.
+    Map<String, Uint8List> mediaFiles = const {};
+    Map<String, String> newRelationships = const {};
     if (images.isNotEmpty) {
-      xml = _replaceImagePlaceholders(
-        xml, 
-        images, 
-        imageReplacements, 
-        imageRels,
-      );
-      imageFiles.addAll(images);
+      final startingRelId = _nextFreeRelId(archive);
+      final targetWidthEmu = _pageContentWidthEmu(xml) ?? _fallbackImageWidthEmu;
+      final result = _insertImages(xml, images, startingRelId, targetWidthEmu);
+      xml = result.xml;
+      mediaFiles = result.mediaFiles;
+      newRelationships = result.relationships;
     }
 
-    final newDocumentBytes = utf8.encode(xml);
+    final newDocumentBytes = Uint8List.fromList(utf8.encode(xml));
 
-    // 4) Mettre à jour le fichier de relations si des images ont été ajoutées
-    ArchiveFile? relsFile;
-    for (final file in archive.files) {
-      if (file.name == _relsPath) {
-        relsFile = file;
-        break;
-      }
-    }
-    
+    // 4) Mettre à jour le fichier de relations (word/_rels/document.xml.rels)
+    //    pour déclarer chaque nouvelle image, et [Content_Types].xml pour
+    //    déclarer l'extension .png si le gabarit n'a jamais contenu d'image.
     Uint8List? newRelsBytes;
-    if (relsFile != null && imageRels.isNotEmpty) {
-      final relsXml = utf8.decode(relsFile.content as List<int>);
-      newRelsBytes = Uint8List.fromList(utf8.encode(_updateRelationships(relsXml, imageRels)));
+    Uint8List? newContentTypesBytes;
+    if (newRelationships.isNotEmpty) {
+      final relsFile = _findFile(archive, _relsPath);
+      final relsXml = relsFile != null
+          ? utf8.decode(relsFile.content as List<int>)
+          : _emptyRelationshipsXml();
+      newRelsBytes = Uint8List.fromList(
+        utf8.encode(_addRelationships(relsXml, newRelationships)),
+      );
+
+      final contentTypesFile =
+          _findFile(archive, _contentTypesPath);
+      if (contentTypesFile != null) {
+        final ctXml = utf8.decode(contentTypesFile.content as List<int>);
+        if (!ctXml.contains('Extension="png"')) {
+          newContentTypesBytes = Uint8List.fromList(
+            utf8.encode(_addPngContentType(ctXml)),
+          );
+        }
+      }
     }
 
-    // Reconstruit l'archive à l'identique, sauf document.xml et éventuellement document.xml.rels
+    // 5) Reconstruit l'archive à l'identique, sauf les fichiers remplacés
+    //    ci-dessus, plus les nouvelles images dans word/media/.
     final outArchive = Archive();
-    
-    // Conserver tous les fichiers existants (sauf ceux qu'on remplace)
     for (final file in archive.files) {
-      // Remplacer document.xml
+      if (!file.isFile) continue;
       if (file.name == _documentXmlPath) {
-        outArchive.addFile(ArchiveFile(
-          _documentXmlPath,
-          newDocumentBytes.length,
-          newDocumentBytes,
-        ));
-      }
-      // Remplacer document.xml.rels si modifié
-      else if (file.name == _relsPath && newRelsBytes != null) {
-        outArchive.addFile(ArchiveFile(
-          _relsPath,
-          newRelsBytes.length,
-          newRelsBytes,
-        ));
-      }
-      // Ajouter les images dans word/media/
-      else if (file.name.startsWith(_mediaPathPrefix)) {
-        // Conserver les images existantes du template
-        final content = file.content as List<int>;
-        outArchive.addFile(ArchiveFile(file.name, content.length, content));
-      }
-      else if (file.isFile) {
+        outArchive.addFile(ArchiveFile(_documentXmlPath, newDocumentBytes.length, newDocumentBytes));
+      } else if (file.name == _relsPath && newRelsBytes != null) {
+        outArchive.addFile(ArchiveFile(_relsPath, newRelsBytes.length, newRelsBytes));
+      } else if (file.name == _contentTypesPath && newContentTypesBytes != null) {
+        outArchive.addFile(ArchiveFile(_contentTypesPath, newContentTypesBytes.length, newContentTypesBytes));
+      } else {
         final content = file.content as List<int>;
         outArchive.addFile(ArchiveFile(file.name, content.length, content));
       }
     }
-    
-    // Ajouter les nouvelles images dans word/media/
-    var imageIndex = 1;
-    for (final entry in imageFiles.entries) {
-      final imageName = 'image$imageIndex.png';
-      final imagePath = _mediaPathPrefix + imageName;
-      
-      outArchive.addFile(ArchiveFile(
-        imagePath,
-        entry.value.length,
-        entry.value,
-      ));
-      
-      // Stocker la correspondance placeholder -> nom d'image
-      imageReplacements[entry.key] = imageName;
-      imageIndex++;
+    // Si le gabarit n'avait encore aucun word/_rels/document.xml.rels (cas
+    // extrême, gabarit minimal), on l'ajoute.
+    if (newRelsBytes != null &&
+        !archive.files.any((f) => f.name == _relsPath)) {
+      outArchive.addFile(ArchiveFile(_relsPath, newRelsBytes.length, newRelsBytes));
+    }
+
+    for (final entry in mediaFiles.entries) {
+      outArchive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
     }
 
     final encoded = ZipEncoder().encode(outArchive);
@@ -335,152 +344,290 @@ class WordReportService {
   // Insertion des images (graphiques)
   // ==========================================================================
 
-  /// Remplace les placeholders d'image (ex: {{GRAPHIQUE_CONSOMMATION}}) par
-  /// des références à des images dans le document Word.
-  /// Retourne le XML modifié et remplit [imageRels] avec les relations à ajouter.
-  static String _replaceImagePlaceholders(
+  /// Repère chaque occurrence d'un placeholder d'image (ex.
+  /// `{{GRAPHIQUE_COUT}}`) — robuste aux runs Word éclatés, comme
+  /// [_replaceTags] — et remplace le **paragraphe entier** qui le contient
+  /// par un paragraphe `<w:drawing>`.
+  ///
+  /// Important : on remplace tout le `<w:p>...</w:p>` englobant, jamais
+  /// seulement le texte du `<w:t>`, car un `<w:drawing>` (comme tout
+  /// contenu de niveau paragraphe) ne peut pas être imbriqué à l'intérieur
+  /// d'un `<w:t>` — cela produit un `.docx` illisible que Word refuse
+  /// d'ouvrir (propose une réparation qui supprime le contenu).
+  static _ImageInsertResult _insertImages(
     String xml,
     Map<String, Uint8List> images,
-    Map<String, String> imageReplacements,
-    Map<String, String> imageRels,
+    int startingRelId,
+    int targetWidthEmu,
   ) {
-    if (images.isEmpty) return xml;
+    final runPattern = RegExp(
+      r'<w:t(?=[ >/])(?:/>|[^>]*?>(?<text>.*?)</w:t>)',
+      dotAll: true,
+    );
+    final runs = runPattern.allMatches(xml).toList();
+    if (runs.isEmpty) return _ImageInsertResult(xml, {}, {});
 
-    // Trouver tous les placeholders d'image dans le document
-    final placeholderPattern = RegExp(r'\{\{([A-Z0-9_]+)\}\}');
-    final matches = placeholderPattern.allMatches(xml).toList();
-    
-    // Filtrer uniquement les placeholders qui correspondent à des images fournies
-    final imagePlaceholders = matches.where((m) {
-      final placeholderName = m.group(1)!;
-      return images.containsKey(placeholderName);
-    }).toList();
-    
-    if (imagePlaceholders.isEmpty) return xml;
-
-    // Remplacer chaque placeholder par un élément de dessin Word
-    var resultXml = xml;
-    var imageIndex = 1;
-    
-    for (final match in imagePlaceholders) {
-      final placeholderName = match.group(1)!;
-      final imageName = 'image$imageIndex.png';
-      
-      // Créer un ID de relation unique
-      final relId = 'rId${100 + imageIndex}';
-      
-      // Stocker la correspondance pour la mise à jour des relations
-      imageReplacements[placeholderName] = imageName;
-      imageRels[relId] = imageName;
-      
-      // Créer l'élément de dessin Word pour l'image
-      // Ce sera un paragraphe avec un drawing inline
-      final drawingXml = _createImageDrawingXml(relId, imageName, imageIndex);
-      
-      // Remplacer le placeholder par le drawing
-      resultXml = resultXml.replaceFirst(
-        '{{$placeholderName}}',
-        drawingXml,
-      );
-      
-      imageIndex++;
+    final runTexts = runs.map((m) => m.namedGroup('text') ?? '').toList();
+    final flatText = runTexts.join();
+    final runStartOffsets = <int>[];
+    var cursor = 0;
+    for (final t in runTexts) {
+      runStartOffsets.add(cursor);
+      cursor += t.length;
     }
-    
-    return resultXml;
-  }
 
-  /// Crée le XML pour un élément de dessin Word avec une image.
-  /// Le drawing est encapsulé dans un paragraphe <w:p>.
-  static String _createImageDrawingXml(String relId, String imageName, int imageIndex) {
-    // Éléments de base avec des identifiants uniques
-    final drawId = 1000 + imageIndex;
-    
-    return '''
-<w:p w14:paraId="FFFF000${imageIndex}" w14:textId="7777000${imageIndex}" w:rsidR="00000000" w:rsidRPr="00000000" w:rsidP="00000000" xmlns:w14="http://schemas.microsoft.com/office/word/2009/wordml">
-  <w:pPr>
-    <w:pStyle w:val="Normal"/>
-    <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
-    <w:rPr>
-      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
-      <w:sz w:val="24"/>
-      <w:szCs w:val="24"/>
-    </w:rPr>
-  </w:pPr>
-  <w:r w:rsidRPr="00000000">
-    <w:rPr>
-      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
-      <w:sz w:val="24"/>
-      <w:szCs w:val="24"/>
-    </w:rPr>
-    <w:drawing>
-      <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
-        <wp:extent cx="6000000" cy="4000000"/>
-        <wp:effectExtent l="0" t="0" r="0" b="0"/>
-        <wp:docPr id="$drawId" name="$imageName" descr="Graphique"/>
-        <wp:cNvGraphicFramePr>
-          <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1" noChangeArrowheads="1"/>
-        </wp:cNvGraphicFramePr>
-        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-              <pic:blipFill>
-                <a:blip r:embed="$relId" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
-                <a:stretch>
-                  <a:fillRect/>
-                </a:stretch>
-              </pic:blipFill>
-              <pic:spPr>
-                <a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-                  <a:off x="0" y="0"/>
-                  <a:ext cx="6000000" cy="4000000"/>
-                </a:xfrm>
-                <a:prstGeom prst="rect" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-                  <a:avLst/>
-                </a:prstGeom>
-              </pic:spPr>
-            </pic:pic>
-          </a:graphicData>
-        </a:graphic>
-      </wp:inline>
-    </w:drawing>
-  </w:r>
-</w:p>
-'''.replaceAll('$drawId', drawId.toString())
-      .replaceAll('$imageName', _escapeXml(imageName))
-      .replaceAll('$relId', relId);
-  }
-
-  /// Met à jour le fichier de relations pour ajouter les références aux images.
-  static String _updateRelationships(String relsXml, Map<String, String> imageRels) {
-    if (imageRels.isEmpty) return relsXml;
-    
-    // Trouver la position avant la balise de fermeture </Relationships>
-    var closingTagIndex = relsXml.lastIndexOf('</Relationships>');
-    if (closingTagIndex == -1) {
-      // Essayer avec </relationships> en minuscules
-      closingTagIndex = relsXml.lastIndexOf('</relationships>');
-      if (closingTagIndex == -1) {
-        return relsXml;
+    int runIndexForOffset(int offset) {
+      var lo = 0, hi = runStartOffsets.length - 1, res = 0;
+      while (lo <= hi) {
+        final mid = (lo + hi) >> 1;
+        if (runStartOffsets[mid] <= offset) {
+          res = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
       }
+      return res;
     }
-    
-    // Ajouter chaque relation d'image
+
+    final tagPattern = RegExp(r'\{\{([A-Z0-9_]+)\}\}');
+    final matches = tagPattern
+        .allMatches(flatText)
+        .where((m) => images.containsKey(m.group(1)))
+        .toList();
+    if (matches.isEmpty) return _ImageInsertResult(xml, {}, {});
+
+    // Une seule table de correspondance placeholder -> (relId, nom de
+    // fichier), construite en un seul passage sur `images` : contrairement
+    // à la version précédente, il n'y a plus deux compteurs indépendants
+    // qui pouvaient se désynchroniser et faire pointer une image vers le
+    // mauvais fichier.
+    final placeholderRelId = <String, String>{};
+    final placeholderFileName = <String, String>{};
+    final mediaFiles = <String, Uint8List>{};
+    final relationships = <String, String>{};
+    var relCounter = startingRelId;
+    for (final entry in images.entries) {
+      final relId = 'rId${relCounter++}';
+      final safeName = entry.key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_]'), '_');
+      final fileName = 'wuect_$safeName.png';
+      placeholderRelId[entry.key] = relId;
+      placeholderFileName[entry.key] = fileName;
+      mediaFiles['$_mediaPathPrefix$fileName'] = entry.value;
+      relationships[relId] = 'media/$fileName';
+    }
+
+    // <w:p[ >/] : même garde que pour <w:tr> (voir _expandAnnualTable) afin
+    // de ne pas confondre avec <w:pPr> (propriétés du paragraphe) ou
+    // <w:proofErr> (marqueur de vérification orthographique), qui
+    // commencent aussi par le préfixe littéral "<w:p".
+    final pOpenPattern = RegExp(r'<w:p[ >/]');
+    final replacements = <_ParaReplacement>[];
+
+    for (final m in matches) {
+      final placeholder = m.group(1)!;
+      final firstRun = runIndexForOffset(m.start);
+      final lastRun = runIndexForOffset(m.end - 1);
+      final anchorXmlStart = runs[firstRun].start;
+      final searchFrom = runs[lastRun].end;
+
+      final pOpens = pOpenPattern.allMatches(xml.substring(0, anchorXmlStart)).toList();
+      if (pOpens.isEmpty) continue; // structure inattendue : tag laissé tel quel
+      final pStart = pOpens.last.start;
+      final pEndTagIndex = xml.indexOf('</w:p>', searchFrom);
+      if (pEndTagIndex == -1) continue;
+      final pEnd = pEndTagIndex + '</w:p>'.length;
+
+      final paragraphXml = _buildImageParagraphXml(
+        relId: placeholderRelId[placeholder]!,
+        imageDescription: placeholder,
+        imageBytes: images[placeholder]!,
+        uniqueSeed: replacements.length + 1,
+        widthEmu: targetWidthEmu,
+      );
+      replacements.add(_ParaReplacement(pStart, pEnd, paragraphXml));
+    }
+
+    if (replacements.isEmpty) return _ImageInsertResult(xml, {}, {});
+
+    replacements.sort((a, b) => a.start.compareTo(b.start));
+    final out = StringBuffer();
+    var lastEnd = 0;
+    for (final r in replacements) {
+      if (r.start < lastEnd) continue; // chevauchement inattendu : ignoré par sécurité
+      out.write(xml.substring(lastEnd, r.start));
+      out.write(r.xml);
+      lastEnd = r.end;
+    }
+    out.write(xml.substring(lastEnd));
+
+    return _ImageInsertResult(out.toString(), mediaFiles, relationships);
+  }
+
+  /// Construit un paragraphe Word autonome (`<w:p>...</w:p>`) contenant
+  /// l'image à la largeur [widthEmu] (en EMU — normalement la largeur
+  /// imprimable de la page, voir [_pageContentWidthEmu]), avec une hauteur
+  /// calculée pour préserver le ratio d'aspect réel du PNG capturé.
+  static String _buildImageParagraphXml({
+    required String relId,
+    required String imageDescription,
+    required Uint8List imageBytes,
+    required int uniqueSeed,
+    required int widthEmu,
+  }) {
+    final pngSize = _pngPixelSize(imageBytes);
+    var heightEmu = (widthEmu * 0.6).round(); // repli si dimensions PNG illisibles
+    if (pngSize != null && pngSize.width > 0 && pngSize.height > 0) {
+      heightEmu = (widthEmu * pngSize.height / pngSize.width).round();
+    }
+
+    final paraId = (0xFFFF0000 + uniqueSeed).toRadixString(16).padLeft(8, '0').toUpperCase();
+    final drawId = 1000 + uniqueSeed;
+    final safeDescr = _escapeXml(imageDescription);
+
+    return '<w:p w14:paraId="$paraId" w14:textId="$paraId" '
+        'xmlns:w14="http://schemas.microsoft.com/office/word/2009/wordml">'
+        '<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+        '<w:r>'
+        '<w:drawing>'
+        '<wp:inline distT="0" distB="0" distL="0" distR="0" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+        '<wp:extent cx="$widthEmu" cy="$heightEmu"/>'
+        '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        '<wp:docPr id="$drawId" name="$safeDescr" descr="$safeDescr"/>'
+        '<wp:cNvGraphicFramePr>'
+        '<a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>'
+        '</wp:cNvGraphicFramePr>'
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:nvPicPr>'
+        '<pic:cNvPr id="$drawId" name="$safeDescr"/>'
+        '<pic:cNvPicPr/>'
+        '</pic:nvPicPr>'
+        '<pic:blipFill>'
+        '<a:blip r:embed="$relId" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        '<a:stretch><a:fillRect/></a:stretch>'
+        '</pic:blipFill>'
+        '<pic:spPr>'
+        '<a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        '<a:off x="0" y="0"/>'
+        '<a:ext cx="$widthEmu" cy="$heightEmu"/>'
+        '</a:xfrm>'
+        '<a:prstGeom prst="rect" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:avLst/></a:prstGeom>'
+        '</pic:spPr>'
+        '</pic:pic>'
+        '</a:graphicData>'
+        '</a:graphic>'
+        '</wp:inline>'
+        '</w:drawing>'
+        '</w:r>'
+        '</w:p>';
+  }
+
+  /// Lit la largeur/hauteur en pixels depuis l'en-tête IHDR d'un PNG.
+  /// Retourne `null` si les octets ne sont pas un PNG valide (fallback vers
+  /// un ratio par défaut dans [_buildImageParagraphXml]).
+  static _PngSize? _pngPixelSize(Uint8List bytes) {
+    const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    if (bytes.length < 24) return null;
+    for (var i = 0; i < 8; i++) {
+      if (bytes[i] != signature[i]) return null;
+    }
+    // Octets 12-15 doivent être le tag de chunk "IHDR" (ASCII 73,72,68,82).
+    if (bytes[12] != 0x49 || bytes[13] != 0x48 || bytes[14] != 0x44 || bytes[15] != 0x52) {
+      return null;
+    }
+    final width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+    final height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+    return _PngSize(width, height);
+  }
+
+  /// Largeur imprimable de la page (largeur de page moins marges gauche et
+  /// droite), en EMU, lue depuis `<w:pgSz>`/`<w:pgMar>` de la dernière
+  /// section (`<w:sectPr>`) du document. C'est cette largeur qui est
+  /// utilisée pour que chaque image occupe toute la largeur de la page.
+  /// Retourne `null` si le document n'a pas de `<w:sectPr>` exploitable
+  /// (gabarit inhabituel) — [_fallbackImageWidthEmu] est alors utilisé.
+  ///
+  /// Unité : dans `<w:pgSz>`/`<w:pgMar>`, les valeurs sont en twips
+  /// (1/20e de point ; 1 pouce = 1440 twips = 914400 EMU, donc
+  /// 1 twip = 635 EMU).
+  static int? _pageContentWidthEmu(String xml) {
+    final sectPrMatches = RegExp(r'<w:sectPr[ >/][\s\S]*?</w:sectPr>').allMatches(xml).toList();
+    if (sectPrMatches.isEmpty) return null;
+    final sectPr = sectPrMatches.last.group(0)!;
+
+    final pgSzMatch = RegExp(r'<w:pgSz\b[^>]*\bw:w="(\d+)"').firstMatch(sectPr);
+    if (pgSzMatch == null) return null;
+    final pageWidthTwips = int.parse(pgSzMatch.group(1)!);
+
+    final pgMarMatch = RegExp(r'<w:pgMar\b[^>]*/>').firstMatch(sectPr);
+    var marginLeftTwips = 1440; // 1 pouce par défaut si <w:pgMar> absent
+    var marginRightTwips = 1440;
+    if (pgMarMatch != null) {
+      final pgMar = pgMarMatch.group(0)!;
+      final left = RegExp(r'w:left="(\d+)"').firstMatch(pgMar);
+      final right = RegExp(r'w:right="(\d+)"').firstMatch(pgMar);
+      if (left != null) marginLeftTwips = int.parse(left.group(1)!);
+      if (right != null) marginRightTwips = int.parse(right.group(1)!);
+    }
+
+    final contentWidthTwips = pageWidthTwips - marginLeftTwips - marginRightTwips;
+    if (contentWidthTwips <= 0) return null;
+    return contentWidthTwips * 635; // twips -> EMU
+  }
+
+  /// Numéro de relation (`rIdN`) le plus élevé déjà utilisé dans le gabarit,
+  /// +1. Évite de coder en dur un numéro de départ (ex. 100) qui pourrait
+  /// entrer en collision avec un gabarit ayant déjà beaucoup de relations
+  /// (images, en-têtes, styles...).
+  static int _nextFreeRelId(Archive archive) {
+    final relsFile = _findFile(archive, _relsPath);
+    if (relsFile == null) return 1;
+    final relsXml = utf8.decode(relsFile.content as List<int>);
+    final ids = RegExp(r'Id="rId(\d+)"')
+        .allMatches(relsXml)
+        .map((m) => int.parse(m.group(1)!))
+        .toList();
+    if (ids.isEmpty) return 1;
+    return ids.reduce((a, b) => a > b ? a : b) + 1;
+  }
+
+  static String _emptyRelationshipsXml() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '</Relationships>';
+  }
+
+  /// Ajoute une relation d'image par entrée de [newRelationships]
+  /// (relId -> chemin cible relatif à `word/`, ex. `media/wuect_xxx.png`).
+  static String _addRelationships(String relsXml, Map<String, String> newRelationships) {
+    if (newRelationships.isEmpty) return relsXml;
+
+    var closingTagIndex = relsXml.lastIndexOf('</Relationships>');
+    if (closingTagIndex == -1) return relsXml; // fichier de relations inattendu : on n'y touche pas
+
     final buffer = StringBuffer(relsXml.substring(0, closingTagIndex));
-    
-    for (final entry in imageRels.entries) {
-      final relId = entry.key;
-      final imageName = entry.value;
-      final imagePath = _mediaPathPrefix + imageName;
-      
-      // Créer une relation pour l'image
-      buffer.writeln('''
-    <Relationship Id="$relId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="$imagePath"/>
-''');
+    for (final entry in newRelationships.entries) {
+      buffer.write('<Relationship Id="${entry.key}" '
+          'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+          'Target="${entry.value}"/>');
     }
-    
     buffer.write(relsXml.substring(closingTagIndex));
-    
     return buffer.toString();
+  }
+
+  /// Ajoute `<Default Extension="png" .../>` à [Content_Types].xml si le
+  /// gabarit ne contenait encore aucune image (donc pas déjà déclaré).
+  static String _addPngContentType(String contentTypesXml) {
+    const pngDefault = '<Default Extension="png" ContentType="image/png"/>';
+    final typesOpenEnd = contentTypesXml.indexOf('>',
+        contentTypesXml.indexOf('<Types'));
+    if (typesOpenEnd == -1) return contentTypesXml;
+    return contentTypesXml.substring(0, typesOpenEnd + 1) +
+        pngDefault +
+        contentTypesXml.substring(typesOpenEnd + 1);
   }
 
   static String _escapeXml(String value) {
@@ -498,4 +645,28 @@ class _Span {
   final int end;
   final String replacement;
   const _Span(this.start, this.end, this.replacement);
+}
+
+/// Résultat de [WordReportService._insertImages].
+class _ImageInsertResult {
+  final String xml;
+  final Map<String, Uint8List> mediaFiles; // chemin dans l'archive -> bytes
+  final Map<String, String> relationships; // relId -> cible relative à word/
+  const _ImageInsertResult(this.xml, this.mediaFiles, this.relationships);
+}
+
+/// Un paragraphe `<w:p>...</w:p>` (délimité par [start]/[end], offsets dans
+/// le XML d'origine) à remplacer intégralement par [xml].
+class _ParaReplacement {
+  final int start;
+  final int end;
+  final String xml;
+  const _ParaReplacement(this.start, this.end, this.xml);
+}
+
+/// Dimensions en pixels lues depuis l'en-tête IHDR d'un PNG.
+class _PngSize {
+  final int width;
+  final int height;
+  const _PngSize(this.width, this.height);
 }

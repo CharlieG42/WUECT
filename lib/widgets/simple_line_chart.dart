@@ -86,7 +86,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
               isCurrency: widget.isCurrency,
               unit: widget.unit,
             ),
-            size: Size.infinite,
+            size: Size(constraints.maxWidth, constraints.maxHeight),
           ),
         ),
       );

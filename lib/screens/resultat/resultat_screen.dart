@@ -204,7 +204,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -235,6 +235,7 @@ class _ResultatScreenState extends State<ResultatScreen> {
             ),
 
             SizedBox(
+              width: double.infinity,
               height: 300,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
