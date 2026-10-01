@@ -21,6 +21,9 @@ class Projet {
   
   @HiveField(5)
   final double percentagePerteRendement; // µCoef (ex: 0.01 pour 1%)
+  
+  @HiveField(6)
+  final int? ivId; // Référence à l'Ingénieur des Ventes associé
 
   Projet({
     this.id,
@@ -29,6 +32,7 @@ class Projet {
     required this.coutEnergie,
     required this.pourcentageAugmentationEnergie,
     required this.percentagePerteRendement,
+    this.ivId,
   });
 
   // Conversion en Map pour SQLite (gardé pour compatibilité)
@@ -37,6 +41,7 @@ class Projet {
       'id': id,
       'nomSite': nomSite,
       'contactId': contactId,
+      'ivId': ivId,
       'coutEnergie': coutEnergie,
       'pourcentageAugmentationEnergie': pourcentageAugmentationEnergie,
       'percentagePerteRendement': percentagePerteRendement,
@@ -49,6 +54,7 @@ class Projet {
       id: map['id'],
       nomSite: map['nomSite'] ?? '',
       contactId: map['contactId'] ?? 0,
+      ivId: map['ivId'],
       coutEnergie: (map['coutEnergie'] ?? 0.0).toDouble(),
       pourcentageAugmentationEnergie: (map['pourcentageAugmentationEnergie'] ?? 0.0).toDouble(),
       percentagePerteRendement: (map['percentagePerteRendement'] ?? 0.0).toDouble(),
@@ -60,6 +66,7 @@ class Projet {
     int? id,
     String? nomSite,
     int? contactId,
+    int? ivId,
     double? coutEnergie,
     double? pourcentageAugmentationEnergie,
     double? percentagePerteRendement,
@@ -68,6 +75,7 @@ class Projet {
       id: id ?? this.id,
       nomSite: nomSite ?? this.nomSite,
       contactId: contactId ?? this.contactId,
+      ivId: ivId ?? this.ivId,
       coutEnergie: coutEnergie ?? this.coutEnergie,
       pourcentageAugmentationEnergie: pourcentageAugmentationEnergie ?? this.pourcentageAugmentationEnergie,
       percentagePerteRendement: percentagePerteRendement ?? this.percentagePerteRendement,

@@ -8,10 +8,12 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'utils/hive_init.dart';
 import 'screens/home_screen.dart';
 import 'models/contact.dart';
+import 'models/iv.dart';
 import 'models/projet.dart';
 import 'models/systeme.dart';
 import 'models/pompe.dart';
 import 'services/database_service.dart';
+import 'services/iv_service.dart';
 import 'services/settings_service.dart';
 
 Future<void> main() async {
@@ -26,12 +28,16 @@ Future<void> main() async {
 
   // Enregistrer les adapters Hive AVANT d'ouvrir les boxes
   Hive.registerAdapter(ContactAdapter());
+  Hive.registerAdapter(IVAdapter());
   Hive.registerAdapter(ProjetAdapter());
   Hive.registerAdapter(SystemeAdapter());
   Hive.registerAdapter(PompeAdapter());
 
   // Initialiser les boxes de la base de données
   await DatabaseService.init();
+  
+  // Initialiser le service IV
+  await IVService.init();
   
   // Initialiser les paramètres globaux
   await SettingsService.init();

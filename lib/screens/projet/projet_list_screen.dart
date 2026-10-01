@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
+import '../../models/iv.dart';
 import '../../services/database_service.dart';
 import '../../utils/error_handler.dart';
 import 'projet_create_screen.dart';
@@ -17,6 +18,7 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
   final DatabaseService _db = DatabaseService.instance;
   List<Projet> _projets = [];
   List<Contact> _contacts = [];
+  List<IV> _ivs = [];
   bool _isLoading = true;
 
   @override
@@ -30,9 +32,11 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
     try {
       final projets = await _db.getAllProjets();
       final contacts = await _db.getAllContacts();
+      final ivs = await _db.getAllIVs();
       setState(() {
         _projets = projets;
         _contacts = contacts;
+        _ivs = ivs;
         _isLoading = false;
       });
     } catch (e) {
@@ -60,6 +64,15 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
   Contact? _getContactById(int contactId) {
     try {
       return _contacts.firstWhere((c) => c.id == contactId);
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  IV? _getIVById(int? ivId) {
+    if (ivId == null) return null;
+    try {
+      return _ivs.firstWhere((iv) => iv.id == ivId);
     } catch (e) {
       return null;
     }
@@ -92,6 +105,7 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
                   itemBuilder: (context, index) {
                     final projet = _projets[index];
                     final contact = _getContactById(projet.contactId);
+                    final iv = _getIVById(projet.ivId);
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                       child: ListTile(
@@ -102,6 +116,9 @@ class _ProjetListScreenState extends State<ProjetListScreen> {
                             if (contact != null) ...[
                               Text('Client: ${contact.client}'),
                               Text('Contact: ${contact.nom}'),
+                            ],
+                            if (iv != null) ...[
+                              Text('IV: ${iv.code} - ${iv.nom}'),
                             ],
                             Text('Coût énergie: ${projet.coutEnergie} EUR/kWh'),
                           ],

@@ -5,6 +5,7 @@ import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../models/contact.dart';
+import '../models/iv.dart';
 import '../models/projet.dart';
 import '../models/systeme.dart';
 import '../models/pompe.dart';
@@ -12,6 +13,7 @@ import '../models/pompe.dart';
 // Noms des boxes Hive
 class HiveBoxNames {
   static const String contacts = 'contacts';
+  static const String ivs = 'ivs';
   static const String projets = 'projets';
   static const String systemes = 'systemes';
   static const String pompes = 'pompes';
@@ -22,6 +24,7 @@ class DatabaseService {
   
   // Boxes Hive
   late final Box<Contact> _contactsBox;
+  late final Box<IV> _ivsBox;
   late final Box<Projet> _projetsBox;
   late final Box<Systeme> _systemesBox;
   late final Box<Pompe> _pompesBox;
@@ -51,6 +54,7 @@ class DatabaseService {
     // Ouvrir les boxes — essayer d'abord le chemin configuré (p.ex. OneDrive).
     try {
       instance._contactsBox = await Hive.openBox<Contact>(HiveBoxNames.contacts);
+      instance._ivsBox = await Hive.openBox<IV>(HiveBoxNames.ivs);
       instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
       instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
       instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
@@ -76,6 +80,7 @@ class DatabaseService {
 
       // Réessayer l'ouverture des boxes
       instance._contactsBox = await Hive.openBox<Contact>(HiveBoxNames.contacts);
+      instance._ivsBox = await Hive.openBox<IV>(HiveBoxNames.ivs);
       instance._projetsBox = await Hive.openBox<Projet>(HiveBoxNames.projets);
       instance._systemesBox = await Hive.openBox<Systeme>(HiveBoxNames.systemes);
       instance._pompesBox = await Hive.openBox<Pompe>(HiveBoxNames.pompes);
@@ -125,6 +130,43 @@ class DatabaseService {
   }
 
   // ====================
+  // CRUD pour IV
+  // ====================
+  
+  Future<int> insertIV(IV iv) async {
+    final ivToInsert = IV(
+      nom: iv.nom,
+      code: iv.code,
+    );
+
+    final key = await _ivsBox.add(ivToInsert);
+    final int id = key;
+
+    final ivWithId = ivToInsert.copyWith(id: id);
+    await _ivsBox.put(id, ivWithId);
+    return id;
+  }
+
+  Future<List<IV>> getAllIVs() async {
+    return _ivsBox.values.toList();
+  }
+
+  Future<IV?> getIVById(int id) async {
+    return _ivsBox.get(id);
+  }
+
+  Future<int> updateIV(IV iv) async {
+    if (iv.id == null) return 0;
+    await _ivsBox.put(iv.id, iv);
+    return 1;
+  }
+
+  Future<int> deleteIV(int id) async {
+    await _ivsBox.delete(id);
+    return 1;
+  }
+
+  // ====================
   // CRUD pour Projet
   // ====================
   
@@ -132,6 +174,7 @@ class DatabaseService {
     final projetToInsert = Projet(
       nomSite: projet.nomSite,
       contactId: projet.contactId,
+      ivId: projet.ivId,
       coutEnergie: projet.coutEnergie,
       pourcentageAugmentationEnergie: projet.pourcentageAugmentationEnergie,
       percentagePerteRendement: projet.percentagePerteRendement,

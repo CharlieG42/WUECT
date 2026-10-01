@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/projet.dart';
 import '../../models/contact.dart';
+import '../../models/iv.dart';
 import '../../services/database_service.dart';
 import '../../utils/decimal_input_formatter.dart';
 import '../../utils/error_handler.dart';
@@ -18,7 +19,9 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
   final _formKey = GlobalKey<FormState>();
   
   List<Contact> _contacts = [];
+  List<IV> _ivs = [];
   int? _selectedContactId;
+  int? _selectedIVId;
   
   final TextEditingController _nomSiteController = TextEditingController();
   final TextEditingController _coutEnergieController = TextEditingController();
@@ -37,8 +40,11 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
     setState(() => _isLoading = true);
     try {
       final contacts = await _db.getAllContacts();
+      final ivs = await _db.getAllIVs();
       setState(() {
         _contacts = contacts;
+        _ivs = ivs;
+        
         if (_contacts.isNotEmpty) {
           // Conserver la sélection actuelle si le contact existe toujours
           if (_selectedContactId == null || 
@@ -51,12 +57,18 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
         } else {
           _selectedContactId = null;
         }
+        
+        // Sélectionner le premier IV par défaut si disponible
+        if (_ivs.isNotEmpty && _selectedIVId == null) {
+          _selectedIVId = _ivs.first.id;
+        }
+        
         _isLoading = false;
       });
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ErrorHandler.showSnackBar(context, 'Erreur de chargement des contacts: $e', error: true);
+        ErrorHandler.showSnackBar(context, 'Erreur de chargement: $e', error: true);
       }
     }
   }
@@ -88,6 +100,7 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
       final projet = Projet(
         nomSite: _nomSiteController.text,
         contactId: _selectedContactId!,
+        ivId: _selectedIVId,
         coutEnergie: cout,
         pourcentageAugmentationEnergie: aug,
         percentagePerteRendement: perte,
@@ -181,6 +194,37 @@ class _ProjetCreateScreenState extends State<ProjetCreateScreen> {
                       icon: const Icon(Icons.add),
                       label: const Text('Ajouter un contact'),
                       onPressed: _navigateToContactForm,
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Sélection de l'Ingénieur des Ventes (IV)
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Ingénieur des Ventes',
+                        prefixIcon: Icon(Icons.engineering),
+                        border: OutlineInputBorder(),
+                      ),
+                      child: _ivs.isEmpty
+                          ? const ListTile(
+                              title: Text('Aucun IV disponible'),
+                              subtitle: Text('Aucun IV configuré'),
+                            )
+                          : DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                value: _selectedIVId,
+                                isExpanded: true,
+                                items: _ivs.map((iv) {
+                                  return DropdownMenuItem<int>(
+                                    value: iv.id,
+                                    child: Text('${iv.code} - ${iv.nom}'),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  setState(() => _selectedIVId = value);
+                                },
+                                hint: const Text('Sélectionner un IV'),
+                              ),
+                            ),
                     ),
                     const SizedBox(height: 16),
                     

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../models/projet.dart';
 import '../../models/contact.dart';
+import '../../models/iv.dart';
 import '../../models/systeme.dart';
 import '../../models/pompe.dart';
 import '../../services/database_service.dart';
@@ -27,8 +28,11 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
   
   Projet? _projet;
   Contact? _contact;
+  IV? _iv;
   List<Contact> _contacts = [];
+  List<IV> _ivs = [];
   int? _selectedContactId;
+  int? _selectedIVId;
   List<Systeme> _systemes = [];
   Map<int, List<Pompe>> _pompesBySysteme = {}; // systemeId -> List<Pompe>
   Map<int, double> _energieSpecifiqueBySysteme = {}; // systemeId -> energieSpecifiqueCumulee
@@ -46,8 +50,10 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
       final projet = await _db.getProjetById(widget.projetId);
       if (projet != null) {
         final contact = await _db.getContactById(projet.contactId);
+        final iv = projet.ivId != null ? await _db.getIVById(projet.ivId!) : null;
         final systemes = await _db.getSystemesByProjetId(widget.projetId);
         final contacts = await _db.getAllContacts();
+        final ivs = await _db.getAllIVs();
         
         // Charger les pompes pour chaque système
         final pompesBySysteme = <int, List<Pompe>>{};
@@ -64,8 +70,11 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         setState(() {
           _projet = projet;
           _contact = contact;
+          _iv = iv;
+          _ivs = ivs;
           _contacts = contacts;
           _selectedContactId = contact?.id;
+          _selectedIVId = projet.ivId;
           _systemes = systemes;
           _pompesBySysteme = pompesBySysteme;
           _energieSpecifiqueBySysteme = energieSpecifiqueBySysteme;
@@ -191,6 +200,10 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                                 Text('Email: ${_contact!.email}'),
                                 Text('Mobile: ${_contact!.mobile}'),
                               ],
+                              if (_iv != null) ...[
+                                const SizedBox(height: 8),
+                                Text('Ingénieur des Ventes: ${_iv!.code} - ${_iv!.nom}'),
+                              ],
                               const SizedBox(height: 8),
                               Text('Coût énergie: ${_projet!.coutEnergie} EUR/kWh'),
                               Text('Augmentation énergie/an: ${_projet!.pourcentageAugmentationEnergie}%'),
@@ -246,6 +259,36 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
                                   }
                                 },
                                 hint: const Text('Sélectionner un contact'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // Sélecteur d'Ingénieur des Ventes
+                      if (_ivs.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<int>(
+                                initialValue: _selectedIVId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Ingénieur des Ventes',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: _ivs.map((iv) {
+                                  return DropdownMenuItem<int>(
+                                    value: iv.id!,
+                                    child: Text('${iv.code} - ${iv.nom}'),
+                                  );
+                                }).toList(),
+                                onChanged: (newIVId) {
+                                  if (newIVId != null) {
+                                    _updateProjetIV(newIVId);
+                                  }
+                                },
+                                hint: const Text('Sélectionner un IV'),
                               ),
                             ),
                           ],
@@ -452,6 +495,27 @@ class _ProjetDetailScreenState extends State<ProjetDetailScreen> {
         });
         ErrorHandler.showSnackBar(context, 'Contact du projet mis à jour');
         _loadData(); // Recharger pour obtenir le nouveau contact
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.showSnackBar(context, 'Erreur de mise à jour: $e', error: true);
+      }
+    }
+  }
+  
+  Future<void> _updateProjetIV(int? newIVId) async {
+    if (_projet == null) return;
+    
+    try {
+      final updatedProjet = _projet!.copyWith(ivId: newIVId);
+      await _db.updateProjet(updatedProjet);
+      
+      if (mounted) {
+        setState(() {
+          _selectedIVId = newIVId;
+        });
+        ErrorHandler.showSnackBar(context, 'Ingénieur des Ventes mis à jour');
+        _loadData(); // Recharger pour obtenir le nouvel IV
       }
     } catch (e) {
       if (mounted) {

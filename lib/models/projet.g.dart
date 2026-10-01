@@ -23,13 +23,14 @@ class ProjetAdapter extends TypeAdapter<Projet> {
       coutEnergie: fields[3] as double,
       pourcentageAugmentationEnergie: fields[4] as double,
       percentagePerteRendement: fields[5] as double,
+      ivId: fields[6] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Projet obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class ProjetAdapter extends TypeAdapter<Projet> {
       ..writeByte(4)
       ..write(obj.pourcentageAugmentationEnergie)
       ..writeByte(5)
-      ..write(obj.percentagePerteRendement);
+      ..write(obj.percentagePerteRendement)
+      ..writeByte(6)
+      ..write(obj.ivId);
   }
 
   @override
