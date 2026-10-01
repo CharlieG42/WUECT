@@ -154,9 +154,6 @@ class WordReportService {
     }
 
     final encoded = ZipEncoder().encode(outArchive);
-    if (encoded == null) {
-      throw StateError('Échec de la réécriture du fichier .docx (ZipEncoder)');
-    }
     return Uint8List.fromList(encoded);
   }
 
@@ -176,7 +173,7 @@ class WordReportService {
   ) {
     if (annualRows.isEmpty) return xml;
 
-    final anchor = '{{$_annualRowAnchorTag}}';
+    const anchor = '{{$_annualRowAnchorTag}}';
     final anchorIndex = xml.indexOf(anchor);
     if (anchorIndex == -1) {
       // Pas de tableau annuel dans ce gabarit : rien à dupliquer, les tags
